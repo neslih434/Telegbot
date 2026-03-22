@@ -1,2 +1,0 @@
-ExecStart={ path=/opt/telegram-bot2/.venv/bin/python ; argv[]=/opt/telegram-bot2/.venv/bin/python /opt/telegram-bot2/main.py ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
-EnvironmentFiles=/opt/telegram-bot2/.env (ignore_errors=no)
