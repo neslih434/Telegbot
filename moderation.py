@@ -106,6 +106,16 @@ def _mod_get_chat(chat_id: int) -> dict:
                     "duration": 24 * 60 * 60,
                     "reason": "",
                 },
+                "antiflood": {
+                    "enabled": False,
+                    "period": 10,
+                    "messages": 6,
+                    "punish": {
+                        "type": "mute",
+                        "duration": 30 * 60,
+                        "reason": "",
+                    },
+                },
             },
             "active": {"mute": {}, "ban": {}},
             "warns": {},
@@ -149,6 +159,53 @@ def _mod_get_chat(chat_id: int) -> dict:
         "type": wp_type,
         "duration": wp_duration,
         "reason": str(wp.get("reason") or ""),
+    }
+
+    af = settings.get("antiflood") or {}
+    af_enabled = af.get("enabled")
+    if not isinstance(af_enabled, bool):
+        af_enabled = bool(af_enabled)
+
+    try:
+        af_period = int(af.get("period") or 10)
+    except Exception:
+        af_period = 10
+    af_period = max(3, min(300, af_period))
+
+    try:
+        af_messages = int(af.get("messages") or 6)
+    except Exception:
+        af_messages = 6
+    af_messages = max(2, min(50, af_messages))
+
+    af_p = af.get("punish") or {}
+    af_type = str(af_p.get("type") or "mute").strip().lower()
+    if af_type not in ("mute", "ban", "kick", "warn"):
+        af_type = "mute"
+
+    af_duration = af_p.get("duration")
+    if af_type in ("mute", "ban"):
+        if af_duration is None:
+            af_duration = 30 * 60
+        else:
+            try:
+                af_duration = int(af_duration)
+            except Exception:
+                af_duration = 30 * 60
+            if af_duration != 0:
+                af_duration = max(MIN_PUNISH_SECONDS, min(MAX_PUNISH_SECONDS, af_duration))
+    else:
+        af_duration = None
+
+    settings["antiflood"] = {
+        "enabled": af_enabled,
+        "period": af_period,
+        "messages": af_messages,
+        "punish": {
+            "type": af_type,
+            "duration": af_duration,
+            "reason": str(af_p.get("reason") or ""),
+        },
     }
     ch["settings"] = settings
 
