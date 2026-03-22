@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram Bot 2
+After=network.target
+
+[Service]
+Type=simple
+User=bot
+WorkingDirectory=/opt/telegram-bot2
+EnvironmentFile=/opt/telegram-bot2/.env
+ExecStart=/opt/telegram-bot2/.venv/bin/python /opt/telegram-bot2/main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

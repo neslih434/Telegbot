@@ -1,0 +1,792 @@
+{
+  "-1003724543890": {
+    "settings": {
+      "warn_enabled": true,
+      "warn_limit": 9,
+      "warn_punish": {
+        "type": "mute",
+        "duration": 86400,
+        "reason": ""
+      }
+    },
+    "active": {
+      "mute": {},
+      "ban": {}
+    },
+    "warns": {
+      "6921234716": [
+        {
+          "id": "1773430169428409",
+          "target_id": 6921234716,
+          "actor_id": 7916597978,
+          "created_at": 1773430169.4284787,
+          "reason": "",
+          "active": true
+        },
+        {
+          "id": "1773430188356122",
+          "target_id": 6921234716,
+          "actor_id": 7916597978,
+          "created_at": 1773430188.3567996,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773430193.5787864,
+          "revoked_by": 7916597978
+        }
+      ],
+      "7328519319": [
+        {
+          "id": "1773516121443711",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516121.4432771,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        },
+        {
+          "id": "1773516123044954",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516123.0442147,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        },
+        {
+          "id": "1773516123913213",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516123.913048,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        },
+        {
+          "id": "1773516125674470",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516125.6746993,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        },
+        {
+          "id": "1773516126625678",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516126.625894,
+          "reason": "/warn @Deghzc",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        },
+        {
+          "id": "1773516127519381",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516127.519066,
+          "reason": "/warn @Deghzc",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        },
+        {
+          "id": "1773516127942661",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516127.942269,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        },
+        {
+          "id": "1773516129765136",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516129.765723,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        },
+        {
+          "id": "1773516131468821",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516131.468768,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773516131.827986
+        }
+      ]
+    },
+    "logs": {
+      "mute": [
+        {
+          "id": "1773420719353827",
+          "target_id": 6921234716,
+          "actor_id": 7916597978,
+          "created_at": 1773420719.353945,
+          "duration": 0,
+          "until": 0,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773420758.888534,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773420758888368",
+          "target_id": 6921234716,
+          "actor_id": 7916597978,
+          "created_at": 1773420758.88855,
+          "duration": 7783260,
+          "until": 1781204018,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773430200.0446773,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773430200044641",
+          "target_id": 6921234716,
+          "actor_id": 7916597978,
+          "created_at": 1773430200.0446937,
+          "duration": 3600,
+          "until": 1773433800,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773439370.2356262
+        },
+        {
+          "id": "1773516131471590",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516131.711346,
+          "duration": 86400,
+          "until": 1773602531,
+          "reason": "За достижение максимального количества предупреждений (9).",
+          "active": false,
+          "auto": true,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Ограничение\n<b>Истекает:</b> <tg-time unix=\"1773602531\" format=\"wDT\">...</tg-time>\n<b>Причина:</b> За достижение максимального количества предупреждений (9).\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5242,
+          "revoked_at": 1773516139.9707935,
+          "revoked_by": 7916597978
+        }
+      ],
+      "ban": [],
+      "warn": [
+        {
+          "id": "1773430169428409",
+          "target_id": 6921234716,
+          "actor_id": 7916597978,
+          "created_at": 1773430169.4284787,
+          "reason": "",
+          "active": true,
+          "count_after": 1
+        },
+        {
+          "id": "1773430188356122",
+          "target_id": 6921234716,
+          "actor_id": 7916597978,
+          "created_at": 1773430188.3567996,
+          "reason": "",
+          "active": false,
+          "count_after": 2,
+          "revoked_at": 1773430193.5787864,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773516121443711",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516121.4432771,
+          "reason": "",
+          "active": true,
+          "count_after": 1,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 1/9\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5226
+        },
+        {
+          "id": "1773516123044954",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516123.0442147,
+          "reason": "",
+          "active": true,
+          "count_after": 2,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 2/9\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5228
+        },
+        {
+          "id": "1773516123913213",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516123.913048,
+          "reason": "",
+          "active": true,
+          "count_after": 3,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 3/9\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5230
+        },
+        {
+          "id": "1773516125674470",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516125.6746993,
+          "reason": "",
+          "active": true,
+          "count_after": 4,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 4/9\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5233
+        },
+        {
+          "id": "1773516126625678",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516126.625894,
+          "reason": "/warn @Deghzc",
+          "active": true,
+          "count_after": 5,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 5/9\n<b>Причина:</b> /warn @Deghzc\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5235
+        },
+        {
+          "id": "1773516127519381",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516127.519066,
+          "reason": "/warn @Deghzc",
+          "active": true,
+          "count_after": 6,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 6/9\n<b>Причина:</b> /warn @Deghzc\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5237
+        },
+        {
+          "id": "1773516127942661",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516127.942269,
+          "reason": "",
+          "active": true,
+          "count_after": 7,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 7/9\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5238
+        },
+        {
+          "id": "1773516129765136",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516129.765723,
+          "reason": "",
+          "active": true,
+          "count_after": 8,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/deghzc\">Dé</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 8/9\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 5240
+        },
+        {
+          "id": "1773516131468821",
+          "target_id": 7328519319,
+          "actor_id": 7916597978,
+          "created_at": 1773516131.468768,
+          "reason": "",
+          "active": true,
+          "count_after": 9
+        }
+      ],
+      "kick": []
+    }
+  },
+  "-1002498766465": {
+    "settings": {
+      "warn_enabled": true,
+      "warn_limit": 3,
+      "warn_punish": {
+        "type": "mute",
+        "duration": 86400,
+        "reason": ""
+      }
+    },
+    "active": {
+      "mute": {},
+      "ban": {}
+    },
+    "warns": {
+      "6911297273": [
+        {
+          "id": "1773434653567238",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773434653.5679357,
+          "reason": "test",
+          "active": false,
+          "revoked_at": 1773434661.416519,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773437466978421",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773437466.9787161,
+          "reason": "тест",
+          "active": true
+        },
+        {
+          "id": "1773439399352378",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773439399.3523571,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773439401.8131258,
+          "revoked_by": 7916597978
+        }
+      ]
+    },
+    "logs": {
+      "mute": [
+        {
+          "id": "1773431503163267",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773431503.163806,
+          "duration": 3600,
+          "until": 1773435103,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773431555.9088197,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773431646977173",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773431646.977644,
+          "duration": 3600,
+          "until": 1773435246,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773431695.1026886,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773431698306617",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773431698.306289,
+          "duration": 3600,
+          "until": 1773435298,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773431718.9502196,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773431734491880",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773431734.4917147,
+          "duration": 3600,
+          "until": 1773435334,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773431748.5610843,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773432120906999",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773432120.9066875,
+          "duration": 3600,
+          "until": 1773435720,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773432125.5350466,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773432933283345",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773432933.2830625,
+          "duration": 3600,
+          "until": 1773436533,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773432937.4140272,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773432939128465",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773432939.1285796,
+          "duration": 3600,
+          "until": 1773436538,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773432972.6808267,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773433024603729",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773433024.6035652,
+          "duration": 3600,
+          "until": 1773436624,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773433036.7992632,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773434590771510",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773434590.7716928,
+          "duration": 3600,
+          "until": 1773438190,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773434597.6413074,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773434607348553",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773434607.3483071,
+          "duration": 3600,
+          "until": 1773438207,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773434608.3636818,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773434610475913",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773434610.4757035,
+          "duration": 3600,
+          "until": 1773438210,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773434621.8232448,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773436848980737",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773436848.9804277,
+          "duration": 3600,
+          "until": 1773440448,
+          "reason": "тест",
+          "active": false,
+          "revoked_at": 1773436867.3358233,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773521134427295",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773521134.4274004,
+          "duration": 3600,
+          "until": 1773524734,
+          "reason": "test",
+          "active": false,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/manki_king_pon\">𝑴𝒂𝒏𝒌𝒊</a> <b>наказан.</b>\n<b>Наказание:</b> Ограничение\n<b>Истекает:</b> <tg-time unix=\"1773524734\" format=\"wDT\">...</tg-time>\n<b>Причина:</b> test\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 248442,
+          "revoked_at": 1773521149.7819567,
+          "revoked_by": 7916597978
+        }
+      ],
+      "ban": [],
+      "warn": [
+        {
+          "id": "1773434653567238",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773434653.5679357,
+          "reason": "test",
+          "active": false,
+          "count_after": 1,
+          "revoked_at": 1773434661.416519,
+          "revoked_by": 7916597978
+        },
+        {
+          "id": "1773437466978421",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773437466.9787161,
+          "reason": "тест",
+          "active": true,
+          "count_after": 1
+        },
+        {
+          "id": "1773439399352378",
+          "target_id": 6911297273,
+          "actor_id": 7916597978,
+          "created_at": 1773439399.3523571,
+          "reason": "тест",
+          "active": false,
+          "count_after": 2,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/manki_king_pon\">𝑴𝒂𝒏𝒌𝒊</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 2/3\n<b>Выдано:</b> <tg-time unix=\"1773439399\" format=\"wDT\">...</tg-time>\n<b>Причина:</b> тест\n\n<b>Администратор:</b> <a href=\"https://t.me/insertq\">Inser̷t̷</a>",
+          "message_id": 248317,
+          "revoked_at": 1773439401.8131258,
+          "revoked_by": 7916597978
+        }
+      ],
+      "kick": []
+    }
+  },
+  "-1003859513101": {
+    "settings": {
+      "warn_enabled": true,
+      "warn_limit": 3,
+      "warn_punish": {
+        "type": "mute",
+        "duration": 86400,
+        "reason": ""
+      }
+    },
+    "active": {
+      "mute": {},
+      "ban": {}
+    },
+    "warns": {},
+    "logs": {
+      "mute": [],
+      "ban": [],
+      "warn": [],
+      "kick": []
+    }
+  },
+  "-1003646575599": {
+    "settings": {
+      "warn_enabled": true,
+      "warn_limit": 3,
+      "warn_punish": {
+        "type": "ban",
+        "duration": 86400,
+        "reason": ""
+      }
+    },
+    "active": {
+      "mute": {},
+      "ban": {}
+    },
+    "warns": {},
+    "logs": {
+      "mute": [],
+      "ban": [],
+      "warn": [],
+      "kick": []
+    }
+  },
+  "-1003761456721": {
+    "settings": {
+      "warn_enabled": true,
+      "warn_limit": 3,
+      "warn_punish": {
+        "type": "mute",
+        "duration": 86400,
+        "reason": ""
+      }
+    },
+    "active": {
+      "mute": {},
+      "ban": {}
+    },
+    "warns": {
+      "7239647600": [
+        {
+          "id": "1773479502397379",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773479502.407847,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773479504.617305,
+          "revoked_by": 7628667441
+        },
+        {
+          "id": "1773480381667388",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480381.667774,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773480412.2012892
+        },
+        {
+          "id": "1773480406356989",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480406.3562286,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773480412.2012892
+        },
+        {
+          "id": "1773480411973803",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480411.973419,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773480412.2012892
+        },
+        {
+          "id": "1773480470653406",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480470.653217,
+          "reason": "",
+          "active": false,
+          "revoked_at": 1773480474.9676967,
+          "revoked_by": 7628667441
+        }
+      ]
+    },
+    "logs": {
+      "mute": [
+        {
+          "id": "1773479508005452",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773479508.0055547,
+          "duration": 0,
+          "until": 0,
+          "reason": "",
+          "active": false,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Ограничение\n<b>Истекает:</b> навсегда\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 86,
+          "revoked_at": 1773479511.2598014,
+          "revoked_by": 7628667441
+        },
+        {
+          "id": "1773479518127862",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773479518.1278694,
+          "duration": 86400,
+          "until": 1773565918,
+          "reason": "1.5",
+          "active": false,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Ограничение\n<b>Истекает:</b> <tg-time unix=\"1773565918\" format=\"wDT\">...</tg-time>\n<b>Причина:</b> 1.5\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 88,
+          "revoked_at": 1773479660.4932244,
+          "revoked_by": 7628667441
+        },
+        {
+          "id": "1773480334480505",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480334.480305,
+          "duration": 0,
+          "until": 0,
+          "reason": "",
+          "active": false,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Ограничение\n<b>Истекает:</b> навсегда\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 202,
+          "revoked_at": 1773480340.947295,
+          "revoked_by": 7628667441
+        },
+        {
+          "id": "1773480412068746",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480412.135641,
+          "duration": 86400,
+          "until": 1773566812,
+          "reason": "Автонаказание за предупреждения.",
+          "active": false,
+          "auto": true,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Ограничение\n<b>Истекает:</b> <tg-time unix=\"1773566812\" format=\"wDT\">...</tg-time>\n<b>Причина:</b> Автонаказание за предупреждения.\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 221,
+          "revoked_at": 1773480447.9681382,
+          "revoked_by": 7916597978
+        }
+      ],
+      "ban": [
+        {
+          "id": "1773479667079952",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773479667.079332,
+          "duration": 0,
+          "until": 0,
+          "reason": "",
+          "active": false,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Блокировка\n<b>Истекает:</b> навсегда\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 104,
+          "revoked_at": 1773479675.9638767,
+          "revoked_by": 7628667441
+        }
+      ],
+      "warn": [
+        {
+          "id": "1773479502397379",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773479502.407847,
+          "reason": "",
+          "active": false,
+          "count_after": 1,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 1/3\n<b>Выдано:</b> <tg-time unix=\"1773479502\" format=\"wDT\">...</tg-time>\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 84,
+          "revoked_at": 1773479504.617305,
+          "revoked_by": 7628667441
+        },
+        {
+          "id": "1773480381667388",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480381.667774,
+          "reason": "",
+          "active": true,
+          "count_after": 1,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 1/3\n<b>Выдано:</b> <tg-time unix=\"1773480381\" format=\"wDT\">...</tg-time>\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 211
+        },
+        {
+          "id": "1773480406356989",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480406.3562286,
+          "reason": "",
+          "active": true,
+          "count_after": 2,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 2/3\n<b>Выдано:</b> <tg-time unix=\"1773480406\" format=\"wDT\">...</tg-time>\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 218
+        },
+        {
+          "id": "1773480411973803",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480411.973419,
+          "reason": "",
+          "active": true,
+          "count_after": 3,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 3/3\n<b>Выдано:</b> <tg-time unix=\"1773480411\" format=\"wDT\">...</tg-time>\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 220
+        },
+        {
+          "id": "1773480470653406",
+          "target_id": 7239647600,
+          "actor_id": 7628667441,
+          "created_at": 1773480470.653217,
+          "reason": "",
+          "active": false,
+          "count_after": 1,
+          "message_html": "<tg-emoji emoji-id=\"5467928559664242360\">⚠️</tg-emoji> <b>Пользователь</b> <a href=\"https://t.me/absolutetor\">Curenb</a> <b>наказан.</b>\n<b>Наказание:</b> Предупреждение\n<b>Предупреждения:</b> 1/3\n<b>Выдано:</b> <tg-time unix=\"1773480470\" format=\"wDT\">...</tg-time>\n\n<b>Администратор:</b> <a href=\"https://t.me/simplybplq\">Simplyhaha</a>",
+          "message_id": 227,
+          "revoked_at": 1773480474.9676967,
+          "revoked_by": 7628667441
+        }
+      ],
+      "kick": []
+    }
+  }
+}

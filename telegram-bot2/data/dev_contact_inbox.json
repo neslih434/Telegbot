@@ -1,0 +1,17 @@
+{
+  "last_id": 1,
+  "items": [
+    {
+      "id": 1,
+      "status": "replied",
+      "created_at": 1773480568,
+      "user_id": 7628667441,
+      "user_full_name": "Simplyhaha",
+      "user_username": "Simplybplq",
+      "text": "Хахахахаха ты бот",
+      "owner_notified_at": 1773480568,
+      "replied_at": 1773480616,
+      "reply_text": "Мать ебал"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "-1003724543890": {
+    "1": {
+      "set_role_text": true
+    },
+    "2": {},
+    "5": {
+      "mute": true,
+      "unmute": true,
+      "ban": true,
+      "unban": true,
+      "warn": true,
+      "unwarn": true,
+      "kick": true,
+      "view_lists": true,
+      "pin": true,
+      "unpin": true,
+      "close_chat": true,
+      "open_chat": true,
+      "manage_verify": true,
+      "set_role_text": true,
+      "set_desc_others": true,
+      "promote": true,
+      "demote": true,
+      "manage_awards": true,
+      "settings": true
+    },
+    "4": {},
+    "3": {}
+  },
+  "-1002498766465": {
+    "1": {}
+  },
+  "-1003646575599": {
+    "1": {}
+  },
+  "-1003761456721": {
+    "5": {
+      "mute": true,
+      "unmute": true,
+      "ban": true,
+      "unban": true,
+      "warn": true,
+      "unwarn": true,
+      "kick": true,
+      "view_lists": true,
+      "pin": true,
+      "unpin": true,
+      "close_chat": true,
+      "open_chat": true,
+      "manage_verify": true,
+      "set_role_text": true,
+      "set_desc_others": true,
+      "promote": true,
+      "demote": true,
+      "manage_awards": true,
+      "settings": true
+    }
+  }
+}

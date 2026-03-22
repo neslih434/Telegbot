@@ -1,0 +1,20 @@
+[0;1;32m●[0m telegram-bot2.service - Telegram Bot2
+     Loaded: loaded (]8;;file://vm873219.hosted-by.u1host.com/etc/systemd/system/telegram-bot2.service/etc/systemd/system/telegram-bot2.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Sun 2026-03-15 15:10:25 CET; 5h 7min ago
+   Main PID: 76862 (python3)
+      Tasks: 20 (limit: 1060)
+     Memory: 88.7M (peak: 89.4M)
+        CPU: 1min 17.712s
+     CGroup: /system.slice/telegram-bot2.service
+             └─[0;38;5;245m76862 /opt/telegram-bot2/.venv/bin/python3 /opt/telegram-bot2/bot.py[0m
+
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]:   File "/opt/telegram-bot2/.venv/lib/python3.12/site-packages/telebot/apihelper.py", line 2037, in answer_callback_query
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]:     method_url = 'answerCallbackQuery'
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]:   File "/opt/telegram-bot2/.venv/lib/python3.12/site-packages/telebot/apihelper.py", line 168, in _make_request
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]:     json_result = _check_result(method_name, result)
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]:                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]:   File "/opt/telegram-bot2/.venv/lib/python3.12/site-packages/telebot/apihelper.py", line 197, in _check_result
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]:     raise ApiTelegramException(method_name, result, result_json)
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]: telebot.apihelper.ApiTelegramException: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: query is too old and response timeout expired or query ID is invalid
+Mar 15 20:13:21 vm873219.hosted-by.u1host.com python3[76862]: "
