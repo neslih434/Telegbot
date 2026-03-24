@@ -71,6 +71,7 @@ from persistence import (
     GLOBAL_LAST_SEEN_UPDATE_SECONDS,
 )
 from helpers import *
+from helpers import _user_can_open_settings, _user_can_edit_now, _build_ranks_keyboard
 
 # Константы наказаний (дублируем из moderation.py, чтобы не создавать цикличных импортов)
 MIN_PUNISH_SECONDS = 60
@@ -4354,6 +4355,22 @@ def _antiflood_get_effective_settings(chat_id: int) -> dict:
 def _antiflood_target_allowed(chat_id: int, user_obj: types.User) -> bool:
     if not user_obj:
         return False
+
+    uid = int(getattr(user_obj, "id", 0) or 0)
+    if uid <= 0:
+        return False
+
+    # Разработчик бота и dev-пользователи не попадают под антифлуд.
+    if is_owner(user_obj) or is_dev(user_obj):
+        return False
+
+    # Пользователи с назначенными ролями (1-5) не попадают под антифлуд.
+    try:
+        if int(get_user_rank(chat_id, uid) or 0) > 0:
+            return False
+    except Exception:
+        pass
+
     try:
         if bool(getattr(user_obj, "is_bot", False)):
             return False
@@ -4361,13 +4378,13 @@ def _antiflood_target_allowed(chat_id: int, user_obj: types.User) -> bool:
         return False
 
     try:
-        if int(getattr(user_obj, "id", 0) or 0) == _get_bot_id():
+        if uid == _get_bot_id():
             return False
     except Exception:
         return False
 
     try:
-        member = bot.get_chat_member(chat_id, int(user_obj.id))
+        member = bot.get_chat_member(chat_id, uid)
         if getattr(member, "status", "") in ("administrator", "creator"):
             return False
     except Exception:
