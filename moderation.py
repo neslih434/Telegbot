@@ -108,6 +108,7 @@ def _mod_get_chat(chat_id: int) -> dict:
                 },
                 "antiflood": {
                     "enabled": False,
+                    "delete_messages": False,
                     "period": 10,
                     "messages": 6,
                     "punish": {
@@ -166,6 +167,10 @@ def _mod_get_chat(chat_id: int) -> dict:
     if not isinstance(af_enabled, bool):
         af_enabled = bool(af_enabled)
 
+    af_delete_messages = af.get("delete_messages")
+    if not isinstance(af_delete_messages, bool):
+        af_delete_messages = bool(af_delete_messages)
+
     try:
         af_period = int(af.get("period") or 10)
     except Exception:
@@ -199,6 +204,7 @@ def _mod_get_chat(chat_id: int) -> dict:
 
     settings["antiflood"] = {
         "enabled": af_enabled,
+        "delete_messages": af_delete_messages,
         "period": af_period,
         "messages": af_messages,
         "punish": {
