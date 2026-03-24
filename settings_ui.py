@@ -1927,7 +1927,7 @@ def _antiflood_type_label(ptype: str) -> str:
     return {
         "mute": "Ограничение",
         "ban": "Блокировка",
-        "kick": "Кик",
+        "kick": "Исключение",
         "warn": "Предупреждение",
     }.get((ptype or "").lower(), "Ограничение")
 
@@ -1961,7 +1961,7 @@ def _render_antiflood_settings_local(chat_id: int, page: str = "main") -> str:
     status_line = f"{emoji_ok} Включён" if enabled else f"{emoji_x} Выключен"
     delete_line = f"{emoji_ok} Включено" if delete_messages else f"{emoji_x} Выключено"
     ptype_line = _antiflood_type_label(ptype)
-    duration_line = "Не используется" if ptype not in ("mute", "ban") else _mod_duration_text(int(duration or 0))
+    duration_line = "Не используется" if ptype == "kick" else _mod_duration_text(int(duration or 0))
 
     hint = ""
     if page == "time":
@@ -1971,10 +1971,10 @@ def _render_antiflood_settings_local(chat_id: int, page: str = "main") -> str:
     elif page == "punish":
         hint = "\n\n<i>Выберите наказание за превышение лимита антифлуда.</i>"
     elif page == "duration":
-        if ptype in ("mute", "ban"):
-            hint = "\n\n<i>Установите длительность наказания.</i>"
-        else:
+        if ptype == "kick":
             hint = "\n\nДля выбранного типа наказания длительность не используется."
+        else:
+            hint = "\n\n<i>Установите длительность наказания.</i>"
 
     return (
         f"{emoji_settings} <b>Настройки антифлуда</b>\n\n"
@@ -2015,20 +2015,29 @@ def _build_antiflood_settings_keyboard_local(chat_id: int, page: str = "main") -
         pass
     kb.add(b_delete)
 
-    b_messages = InlineKeyboardButton("Сообщения", callback_data=f"stf:page:{chat_id}:messages")
-    b_time = InlineKeyboardButton("Время", callback_data=f"stf:page:{chat_id}:time")
-    b_punish = InlineKeyboardButton("Наказание", callback_data=f"stf:page:{chat_id}:punish")
-    b_duration = InlineKeyboardButton("Длительность", callback_data=f"stf:page:{chat_id}:duration")
+    b_messages_text = "»Сообщения«" if page == "messages" else "Сообщения"
+    b_time_text = "»Время«" if page == "time" else "Время"
+    b_punish_text = "»Наказание«" if page == "punish" else "Наказание"
+    b_duration_text = "»Длительность«" if page == "duration" else "Длительность"
 
-    for key, btn in (("messages", b_messages), ("time", b_time), ("punish", b_punish), ("duration", b_duration)):
-        try:
-            if page == key:
-                btn.style = "primary"
-        except Exception:
-            pass
+    b_messages = InlineKeyboardButton(b_messages_text, callback_data=f"stf:page:{chat_id}:messages")
+    b_time = InlineKeyboardButton(b_time_text, callback_data=f"stf:page:{chat_id}:time")
+    b_punish = InlineKeyboardButton(b_punish_text, callback_data=f"stf:page:{chat_id}:punish")
+    b_duration = InlineKeyboardButton(b_duration_text, callback_data=f"stf:page:{chat_id}:duration")
+
+    try:
+        if page == "messages":
+            b_messages.style = "primary"
+        if page == "time":
+            b_time.style = "primary"
+        if page == "punish":
+            b_punish.style = "primary"
+        if page == "duration":
+            b_duration.style = "primary"
+    except Exception:
+        pass
 
     kb.row(b_messages, b_time)
-    kb.row(b_punish, b_duration)
 
     if page == "time":
         row: list[InlineKeyboardButton] = []
@@ -2056,10 +2065,12 @@ def _build_antiflood_settings_keyboard_local(chat_id: int, page: str = "main") -
         for i in range(0, len(row), 5):
             kb.row(*row[i:i + 5])
 
+    kb.row(b_punish, b_duration)
+
     if page == "punish":
         b_mute = InlineKeyboardButton("Ограничение", callback_data=f"stf:ptype:{chat_id}:mute")
         b_ban = InlineKeyboardButton("Блокировка", callback_data=f"stf:ptype:{chat_id}:ban")
-        b_kick = InlineKeyboardButton("Кик", callback_data=f"stf:ptype:{chat_id}:kick")
+        b_kick = InlineKeyboardButton("Исключение", callback_data=f"stf:ptype:{chat_id}:kick")
         b_warn = InlineKeyboardButton("Предупреждение", callback_data=f"stf:ptype:{chat_id}:warn")
         for btn, p_key in ((b_mute, "mute"), (b_ban, "ban"), (b_kick, "kick"), (b_warn, "warn")):
             try:
@@ -2070,20 +2081,12 @@ def _build_antiflood_settings_keyboard_local(chat_id: int, page: str = "main") -
         kb.row(b_mute, b_ban)
         kb.row(b_kick, b_warn)
 
-    if page == "duration" and ptype in ("mute", "ban"):
-        row = []
-        for sec, label in ANTIFLOOD_DURATION_PRESETS:
-            b = InlineKeyboardButton(label, callback_data=f"stf:dur:{chat_id}:{sec}")
-            try:
-                if duration == sec:
-                    b.style = "primary"
-            except Exception:
-                pass
-            row.append(b)
-        for i in range(0, len(row), 4):
-            kb.row(*row[i:i + 4])
-
-        b_set = InlineKeyboardButton("Установить время", callback_data=f"stf:dur_prompt:{chat_id}")
+    if page == "duration":
+        b_set = InlineKeyboardButton("Установить длительность", callback_data=f"stf:dur_prompt:{chat_id}")
+        try:
+            b_set.style = "primary"
+        except Exception:
+            pass
         kb.add(b_set)
 
     b_back = InlineKeyboardButton("Назад", callback_data=f"st_back_main:{chat_id}")
@@ -2763,7 +2766,7 @@ def cb_antiflood_settings_only(c: types.CallbackQuery):
         ptype = (extra or "").strip().lower()
         if ptype in ("mute", "ban", "kick", "warn"):
             punish["type"] = ptype
-            if ptype not in ("mute", "ban"):
+            if ptype == "kick":
                 punish["duration"] = None
             elif punish.get("duration") is None:
                 punish["duration"] = 30 * 60
@@ -2779,7 +2782,7 @@ def cb_antiflood_settings_only(c: types.CallbackQuery):
             bot.answer_callback_query(c.id)
             return
         ptype = (punish.get("type") or "mute").lower()
-        if ptype in ("mute", "ban"):
+        if ptype != "kick":
             punish["duration"] = max(MIN_PUNISH_SECONDS, min(MAX_PUNISH_SECONDS, sec))
             af["punish"] = punish
             settings["antiflood"] = af
@@ -2788,8 +2791,8 @@ def cb_antiflood_settings_only(c: types.CallbackQuery):
         page = "duration"
     elif action == "dur_prompt":
         ptype = (punish.get("type") or "mute").lower()
-        if ptype not in ("mute", "ban"):
-            bot.answer_callback_query(c.id, "Для этого типа наказания длительность не используется.", show_alert=True)
+        if ptype == "kick":
+            bot.answer_callback_query(c.id, "Для исключения длительность не используется.", show_alert=True)
             return
 
         _pending_put("pending_antiflood_duration", user.id, chat_id)
@@ -3703,12 +3706,12 @@ def on_settings_private_input(m: types.Message):
         af = settings.get("antiflood") or {}
         punish = af.get("punish") or {}
         ptype = (punish.get("type") or "mute").lower()
-        if ptype not in ("mute", "ban"):
+        if ptype == "kick":
             _pending_pop("pending_antiflood_duration", user_id)
             _try_delete_private_prompt(m.chat.id, _pending_msg_pop("pending_antiflood_duration_msg", user_id))
             bot.send_message(
                 m.chat.id,
-                premium_prefix("Для выбранного типа наказания длительность не используется."),
+                premium_prefix("Для исключения длительность не используется."),
                 parse_mode='HTML',
                 disable_web_page_preview=True,
             )

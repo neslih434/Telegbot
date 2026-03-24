@@ -189,7 +189,7 @@ def _mod_get_chat(chat_id: int) -> dict:
         af_type = "mute"
 
     af_duration = af_p.get("duration")
-    if af_type in ("mute", "ban"):
+    if af_type != "kick":
         if af_duration is None:
             af_duration = 30 * 60
         else:
