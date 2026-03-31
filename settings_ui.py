@@ -1575,8 +1575,17 @@ def _render_section_preview(chat_id: int, sec: str) -> str:
     buttons_flag = emoji_ok if has_buttons else emoji_x
     src = (sc.get("source") or "plain").upper()
 
+    section_desc = {
+        "welcome": "Отправляет приветственное сообщение, когда пользователь входит в группу.",
+        "farewell": "Отправляет прощальное сообщение, когда пользователь выходит из группы.",
+        "rules": "Показывает правила группы по кнопке или команде.",
+    }.get(sec, "")
+
+    desc_block = f"{_html.escape(section_desc)}\n\n" if section_desc else ""
+
     return (
         f"{emoji_settings} <b>Настройки {_section_title(sec)}</b>\n\n"
+        f"{desc_block}"
         f"<b>Статус:</b> {status}\n"
         f"<b>Текст:</b> {text_flag}\n"
         f"<b>Медиа:</b> {media_flag}\n"
@@ -1646,9 +1655,8 @@ def _render_cleanup_commands(chat_id: int) -> str:
     emoji = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_SENT_PM_ID}">🧹</tg-emoji>'
     return (
         f"{emoji} <b>Удаление команд</b>\n\n"
-        "Удаляет <b>только</b> сообщения, которые <b>начинаются</b> с выбранного знака.\n"
-        "Напр.: <code>/cmd ...</code> — удалит, а <code>текст /cmd</code> — нет.\n\n"
-        f"<b>Включены:</b> <code>{_html.escape(enabled_txt)}</code>"
+        "Удаляет сообщения, которые начинаются с выбранного знака.\n"
+        f"<b>Включены: знаки</b> <code>{_html.escape(enabled_txt)}</code>"
     )
 
 
@@ -1711,8 +1719,8 @@ def _render_cleanup_system(chat_id: int) -> str:
     emoji = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_SENT_PM_ID}">🧽</tg-emoji>'
     return (
         f"{emoji} <b>Удаление системных сообщений</b>\n\n"
-        "Нажмите на тип системного сообщения — появятся кнопки ВКЛ/ВЫКЛ под ним.\n"
-        f"<b>Включено типов:</b> <code>{len(enabled)}</code>\n"
+        "Удаляет выбранные системные сообщения.\n"
+        f"<b>Включено: количество включенных</b> <code>{len(enabled)}</code>\n"
         "<i>Если у бота нет права “Удалять сообщения”, удаление работать не будет.</i>"
     )
 
@@ -1979,11 +1987,12 @@ def _render_antiflood_settings_local(chat_id: int, page: str = "main") -> str:
 
     return (
         f"{emoji_settings} <b>Настройки антифлуда</b>\n\n"
+        "Автоматически наказывает пользователя, если он отправит определённое количество сообщений за заданный период.\n\n"
         f"<b>Статус:</b> {status_line}\n"
         f"<b>Удаление сообщений:</b> {delete_line}\n"
         f"<b>Время:</b> <code>{period}</code> сек\n"
         f"<b>Сообщения:</b> <code>{messages}</code>\n"
-        f"<b>Наказание:</b> <code>{_html.escape(ptype_line)}</code>\n"
+        f"<b>Наказание</b> <code>{_html.escape(ptype_line)}</code>\n"
         f"<b>Длительность:</b> <code>{_html.escape(duration_line)}</code>"
         f"{hint}"
     )
@@ -2385,6 +2394,7 @@ def _render_warn_settings_local(chat_id: int, page: str = "main") -> str:
 
     return (
         f"{emoji_settings} <b>Настройки предупреждений</b>\n\n"
+        "Автоматически применяет наказание, когда пользователь достигает лимита предупреждений.\n\n"
         f"<b>Статус:</b> {status_line}\n"
         f"<b>Максимальное количество:</b> <code>{warn_limit}</code>\n"
         f"<b>Наказание:</b> <code>{_html.escape(type_label)}</code>\n"
@@ -2412,53 +2422,55 @@ def _build_warn_settings_keyboard_local(chat_id: int, page: str = "main") -> Inl
         pass
     kb.add(b_status)
 
-    nav_defs = [
-        ("count", "Количество"),
-        ("punish", "Наказание"),
-        ("duration", "Длительность"),
-    ]
-    for key, title in nav_defs:
-        is_selected = (page == key)
-        btn_title = f"»{title}«" if is_selected else title
-        b_nav = InlineKeyboardButton(btn_title, callback_data=f"stw:page:{chat_id}:{key}")
-        try:
-            if is_selected:
-                b_nav.style = "primary"
-        except Exception:
-            pass
-        kb.add(b_nav)
+    b_count_title = "»Количество«" if page == "count" else "Количество"
+    b_punish_title = "»Наказание«" if page == "punish" else "Наказание"
+    b_duration_title = "»Длительность«" if page == "duration" else "Длительность"
 
-        if not is_selected:
-            continue
+    b_count = InlineKeyboardButton(b_count_title, callback_data=f"stw:page:{chat_id}:count")
+    b_punish = InlineKeyboardButton(b_punish_title, callback_data=f"stw:page:{chat_id}:punish")
+    b_duration = InlineKeyboardButton(b_duration_title, callback_data=f"stw:page:{chat_id}:duration")
 
-        if key == "count":
-            nums: list[InlineKeyboardButton] = []
-            for n in range(2, 11):
-                b = InlineKeyboardButton(str(n), callback_data=f"stw:limit:{chat_id}:{n}")
-                try:
-                    if warn_limit == n:
-                        b.style = "primary"
-                except Exception:
-                    pass
-                nums.append(b)
-            for i in range(0, len(nums), 5):
-                kb.row(*nums[i:i + 5])
+    try:
+        if page == "count":
+            b_count.style = "primary"
+        if page == "punish":
+            b_punish.style = "primary"
+        if page == "duration":
+            b_duration.style = "primary"
+    except Exception:
+        pass
 
-        if key == "punish":
-            b_mute = InlineKeyboardButton("Ограничение", callback_data=f"stw:ptype:{chat_id}:mute")
-            b_ban = InlineKeyboardButton("Блокировка", callback_data=f"stw:ptype:{chat_id}:ban")
-            b_kick = InlineKeyboardButton("Кик", callback_data=f"stw:ptype:{chat_id}:kick")
-            for btn, p_key in ((b_mute, "mute"), (b_ban, "ban"), (b_kick, "kick")):
-                try:
-                    if ptype == p_key:
-                        btn.style = "primary"
-                except Exception:
-                    pass
-            kb.row(b_mute, b_ban, b_kick)
+    kb.row(b_count)
+    kb.row(b_punish, b_duration)
 
-        if key == "duration" and ptype in ("mute", "ban"):
-            b_set = InlineKeyboardButton("Установить время", callback_data=f"stw:dur_prompt:{chat_id}")
-            kb.add(b_set)
+    if page == "count":
+        nums: list[InlineKeyboardButton] = []
+        for n in range(2, 11):
+            b = InlineKeyboardButton(str(n), callback_data=f"stw:limit:{chat_id}:{n}")
+            try:
+                if warn_limit == n:
+                    b.style = "primary"
+            except Exception:
+                pass
+            nums.append(b)
+        for i in range(0, len(nums), 5):
+            kb.row(*nums[i:i + 5])
+
+    if page == "punish":
+        b_mute = InlineKeyboardButton("Ограничение", callback_data=f"stw:ptype:{chat_id}:mute")
+        b_ban = InlineKeyboardButton("Блокировка", callback_data=f"stw:ptype:{chat_id}:ban")
+        b_kick = InlineKeyboardButton("Кик", callback_data=f"stw:ptype:{chat_id}:kick")
+        for btn, p_key in ((b_mute, "mute"), (b_ban, "ban"), (b_kick, "kick")):
+            try:
+                if ptype == p_key:
+                    btn.style = "primary"
+            except Exception:
+                pass
+        kb.row(b_mute, b_ban, b_kick)
+
+    if page == "duration" and ptype in ("mute", "ban"):
+        b_set = InlineKeyboardButton("Установить время", callback_data=f"stw:dur_prompt:{chat_id}")
+        kb.add(b_set)
 
     b_back = InlineKeyboardButton("Назад", callback_data=f"st_back_main:{chat_id}")
     try:
