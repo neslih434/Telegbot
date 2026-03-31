@@ -2992,25 +2992,25 @@ def cb_openchat_button(c: types.CallbackQuery):
     bot.answer_callback_query(c.id, text="Чат открыт.", show_alert=False)
 
 
-# ==== ПРОВЕРКА, МОЖНО ЛИ КИКНУТЬ ЦЕЛЬ ====
+# ==== ПРОВЕРКА, МОЖНО ЛИ ИСКЛЮЧИТЬ ЦЕЛЬ ====
 
 def _can_kick_target(chatid: int, actor: types.User, target_id: int) -> tuple[bool, str | None]:
     """
-    Проверяем, можно ли кикнуть target_id:
+    Проверяем, можно ли исключить target_id:
     - нельзя трогать спец-актеров (owner/dev/глобальная верификация и т.п.);
     - нельзя трогать админов/владельца (статус администратора/создателя);
     - нельзя трогать глобальных dev / локально верифицированных;
-    - нельзя трогать тех, у кого ранг >= ранга кикающего;
+    - нельзя трогать тех, у кого ранг >= ранга исключающего;
     - нельзя трогать себя.
     """
     if target_id == actor.id:
-        return False, "Нельзя кикнуть самого себя."
+        return False, "Нельзя исключить самого себя."
 
     # спец-актеры (твоя логика is_special_actor)
     try:
         dummy_user = types.User(id=target_id, is_bot=False, first_name=".", last_name=None, username=None)
         if _is_special_actor(chatid, dummy_user):
-            return False, "Нельзя кикнуть пользователя с особым статусом."
+            return False, "Нельзя исключить пользователя с особым статусом."
     except Exception:
         pass
 
@@ -3018,28 +3018,28 @@ def _can_kick_target(chatid: int, actor: types.User, target_id: int) -> tuple[bo
     try:
         member = bot.get_chat_member(chatid, target_id)
         if member.status in ("administrator", "creator"):
-            return False, "Нельзя кикнуть пользователя с префиксом."
+            return False, "Нельзя исключить пользователя с префиксом."
     except Exception:
         pass
 
     # глобальные разработчики
     if target_id in VERIFY_DEV:
-        return False, "Нельзя кикнуть dev-пользователя."
+        return False, "Нельзя исключить dev-пользователя."
     
-    # по рангам: нельзя кикнуть такой же или более высокий ранг
+    # по рангам: нельзя исключить такой же или более высокий ранг
     actor_rank = get_user_rank(chatid, actor.id)
     target_rank = get_user_rank(chatid, target_id)
     if target_rank >= actor_rank > 0:
-        return False, "Нельзя кикнуть пользователя с должностью."
+        return False, "Нельзя исключить пользователя с должностью."
 
     return True, None
 
 
-# ==== ЛОГИКА КИКА + РАЗБАН ====
+# ==== ЛОГИКА ИСКЛЮЧЕНИЯ + РАЗБАН ====
 
 def _kick_with_unban(chatid: int, actor: types.User, target_id: int, reason: str | None) -> str | None:
     """
-    Кик + моментальный разбан.
+    Исключение + моментальный разбан.
     Возвращает текст ошибки (для premium_prefix) или None, если всё ок.
     Для ранга 0 возвращает понятную ошибку доступа.
     """
@@ -3048,19 +3048,19 @@ def _kick_with_unban(chatid: int, actor: types.User, target_id: int, reason: str
     status, allowed = check_role_permission(chatid, actor.id, PERM_KICK)
     if not allowed:
         if status == 'no_rank':
-            return "Для использования кика назначьте себе должность с этим правом в /settings."
+            return "Для использования исключения назначьте себе должность с этим правом в /settings."
         if status == 'no_perm':
             # есть должность (1–5), но нет права
-            return "У вашей должности нет права использовать кик."
+            return "У вашей должности нет права использовать исключение."
         # прочие случаи (теоретически)
-        return "Вы не можете использовать кик."
+        return "Вы не можете использовать исключение."
 
-    # нельзя кикнуть недопустимую цель
+    # нельзя исключить недопустимую цель
     ok, err = _can_kick_target(chatid, actor, target_id)
     if not ok:
         return err
 
-    # пробуем кикнуть (бан + разбан)
+    # пробуем исключить (бан + разбан)
     try:
         if hasattr(bot, "ban_chat_member"):
             bot.ban_chat_member(chatid, target_id)
@@ -3071,10 +3071,10 @@ def _kick_with_unban(chatid: int, actor: types.User, target_id: int, reason: str
         if ("not enough rights" in msg or
                 "not sufficient rights" in msg or
                 "can_restrict_members" in msg):
-            return "У бота нет прав для кика. Дайте ему право «Блокировка пользователей»."
-        return f"Не удалось кикнуть пользователя: {e}"
+            return "У бота нет прав для исключения. Дайте ему право «Блокировка пользователей»."
+        return f"Не удалось исключить пользователя: {e}"
     except Exception as e:
-        return f"Не удалось кикнуть пользователя: {e}"
+        return f"Не удалось исключить пользователя: {e}"
 
     # моментальный разбан
     try:

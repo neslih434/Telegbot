@@ -1607,7 +1607,7 @@ def _render_cleanup_main(chat_id: int) -> str:
     enabled_cmds_txt = " ".join(enabled_cmds) if enabled_cmds else "нет"
 
     enabled_sys = [ct for ct in CLEANUP_SYSTEM_TYPES_ORDER if sysd.get(ct)]
-    enabled_sys_txt = str(len(enabled_sys))
+    enabled_sys_txt = str(len(enabled_sys)) if enabled_sys else "нет"
 
     can_del = _bot_can_delete_messages(chat_id)
     rights = f"{emoji_ok} Есть" if can_del else f"{emoji_x} Нет"
@@ -1624,8 +1624,9 @@ def _render_cleanup_main(chat_id: int) -> str:
     return (
         f"{emoji_settings} <b>Удаление сообщений</b>\n\n"
         f"<b>Права бота на удаление:</b> {rights}\n"
-        f"<b>Команды (по префиксу):</b> <code>{_html.escape(enabled_cmds_txt)}</code>\n"
-        f"<b>Системные сообщения:</b> <code>{_html.escape(enabled_sys_txt)}</code> включено\n"
+        f"<b>Команды:</b> <code>{_html.escape(enabled_cmds_txt)}</code>\n"
+        f"<b>Системные сообщения:</b> <code>{_html.escape(enabled_sys_txt)}</code>\n"
+        "<i>Если у бота нет права “Удалять сообщения”, удаление работать не будет.</i>"
         f"{warn}"
     )
 
@@ -1656,7 +1657,7 @@ def _render_cleanup_commands(chat_id: int) -> str:
     return (
         f"{emoji} <b>Удаление команд</b>\n\n"
         "Удаляет сообщения, которые начинаются с выбранного знака.\n"
-        f"<b>Включены: знаки</b> <code>{_html.escape(enabled_txt)}</code>"
+        f"\n<b>Включены:</b> <code>{_html.escape(enabled_txt)}</code>"
     )
 
 
@@ -1720,8 +1721,7 @@ def _render_cleanup_system(chat_id: int) -> str:
     return (
         f"{emoji} <b>Удаление системных сообщений</b>\n\n"
         "Удаляет выбранные системные сообщения.\n"
-        f"<b>Включено: количество включенных</b> <code>{len(enabled)}</code>\n"
-        "<i>Если у бота нет права “Удалять сообщения”, удаление работать не будет.</i>"
+        f"\n<b>Включено: количество включенных</b> <code>{len(enabled)}</code>"
     )
 
 
@@ -1842,7 +1842,7 @@ def _build_warn_settings_keyboard(chat_id: int, page: str = "main") -> InlineKey
     if page == "punish":
         btn_mute = InlineKeyboardButton("Ограничение", callback_data=f"st_warn_ptype:{chat_id}:mute")
         btn_ban = InlineKeyboardButton("Блокировка", callback_data=f"st_warn_ptype:{chat_id}:ban")
-        btn_kick = InlineKeyboardButton("Кик", callback_data=f"st_warn_ptype:{chat_id}:kick")
+        btn_kick = InlineKeyboardButton("Исключение", callback_data=f"st_warn_ptype:{chat_id}:kick")
         for btn, key in ((btn_mute, "mute"), (btn_ban, "ban"), (btn_kick, "kick")):
             try:
                 btn.style = "primary" if ptype == key else "secondary"
@@ -2388,7 +2388,7 @@ def _render_warn_settings_local(chat_id: int, page: str = "main") -> str:
         hint = "\n\n<i>Выберите наказание, которое будет применяться при достижении максимального количества предупреждений.</i>"
     elif page == "duration":
         if ptype == "kick":
-            hint = "\n\nДля наказания «Кик» длительность не устанавливается."
+            hint = "\n\nДля наказания «Исключение» длительность не устанавливается."
         else:
             hint = "\n\n<i>Установите время наказания.</i>"
 
@@ -2441,7 +2441,6 @@ def _build_warn_settings_keyboard_local(chat_id: int, page: str = "main") -> Inl
         pass
 
     kb.row(b_count)
-    kb.row(b_punish, b_duration)
 
     if page == "count":
         nums: list[InlineKeyboardButton] = []
@@ -2456,10 +2455,12 @@ def _build_warn_settings_keyboard_local(chat_id: int, page: str = "main") -> Inl
         for i in range(0, len(nums), 5):
             kb.row(*nums[i:i + 5])
 
+    kb.row(b_punish, b_duration)
+
     if page == "punish":
         b_mute = InlineKeyboardButton("Ограничение", callback_data=f"stw:ptype:{chat_id}:mute")
         b_ban = InlineKeyboardButton("Блокировка", callback_data=f"stw:ptype:{chat_id}:ban")
-        b_kick = InlineKeyboardButton("Кик", callback_data=f"stw:ptype:{chat_id}:kick")
+        b_kick = InlineKeyboardButton("Исключение", callback_data=f"stw:ptype:{chat_id}:kick")
         for btn, p_key in ((b_mute, "mute"), (b_ban, "ban"), (b_kick, "kick")):
             try:
                 if ptype == p_key:
@@ -2649,7 +2650,7 @@ def cb_warn_settings_only(c: types.CallbackQuery):
     elif action == "dur_prompt":
         wp = settings.get("warn_punish") or {}
         if (wp.get("type") or "mute").lower() not in ("mute", "ban"):
-            bot.answer_callback_query(c.id, "Для кика длительность не используется.", show_alert=True)
+            bot.answer_callback_query(c.id, "Для исключения длительность не используется.", show_alert=True)
             return
         _pending_put("pending_warn_duration", user.id, chat_id)
         _delete_pending_ui(msg_chat.id, "pending_warn_duration_msg", user.id, also_msg_id=c.message.message_id)
@@ -3829,7 +3830,7 @@ def on_settings_private_input(m: types.Message):
             _try_delete_private_prompt(m.chat.id, _pending_msg_pop("pending_warn_duration_msg", user_id))
             bot.send_message(
                 m.chat.id,
-                premium_prefix("Для типа наказания 'Кик' длительность не используется."),
+                premium_prefix("Для типа наказания 'Исключение' длительность не используется."),
                 parse_mode='HTML',
                 disable_web_page_preview=True,
             )
@@ -4416,7 +4417,7 @@ def _antiflood_send_punish_message(
     punish_label = {
         "mute": "Ограничение",
         "ban": "Блокировка",
-        "kick": "Кик",
+        "kick": "Исключение",
         "warn": "Предупреждение",
     }.get(action_kind, "Наказание")
 

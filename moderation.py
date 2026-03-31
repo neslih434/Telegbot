@@ -50,6 +50,7 @@ from persistence import (
     _is_duplicate_callback_query,
     GLOBAL_LAST_SEEN_UPDATE_SECONDS,
 )
+import helpers
 from helpers import *
 
 # ==== МОДЕРАЦИЯ: MUTE / BAN / WARN / LISTS / DEL ==== 
@@ -863,7 +864,7 @@ def _can_punish_target(chatid: int, actor: types.User, target_id: int) -> tuple[
 
     try:
         dummy = types.User(id=target_id, is_bot=False, first_name=".", last_name=None, username=None)
-        if _is_special_actor(chatid, dummy):
+        if helpers._is_special_actor(chatid, dummy):
             return False, "Нельзя наказать пользователя с особым статусом."
     except Exception:
         pass
@@ -1260,7 +1261,7 @@ def _process_moderation_action(
         "mute": MOD_ERR["no_perm_mute"],
         "ban": MOD_ERR["no_perm_ban"],
         "warn": MOD_ERR["no_perm_warn"],
-        "kick": "У вашей должности нет права использовать кик.",
+        "kick": "У вашей должности нет права использовать исключение.",
     }
     perm = perm_map[action_kind]
 
@@ -1479,7 +1480,7 @@ def cmd_moderation_main(m: types.Message):
 
         _mod_cleanup_expired(m.chat.id)
         st, ok = check_role_permission(m.chat.id, m.from_user.id, PERM_VIEW_LISTS)
-        if not ok and not _is_special_actor(m.chat.id, m.from_user):
+        if not ok and not helpers._is_special_actor(m.chat.id, m.from_user):
             if st == 'no_perm':
                 return bot.reply_to(
                     m,
@@ -1743,7 +1744,7 @@ def cb_modlist(c: types.CallbackQuery):
             pass
         return bot.answer_callback_query(c.id)
 
-    if not _is_special_actor(source_chat_id, c.from_user):
+    if not helpers._is_special_actor(source_chat_id, c.from_user):
         st, ok = check_role_permission(source_chat_id, c.from_user.id, PERM_VIEW_LISTS)
         if not ok:
             if st == 'no_perm':
@@ -1799,7 +1800,7 @@ ADMIN_STATS_PAGE_SIZE = 10
 
 
 def _can_view_adminstats_for_chat(chat_id: int, user: types.User) -> bool:
-    if _is_special_actor(chat_id, user):
+    if helpers._is_special_actor(chat_id, user):
         return True
     _, allowed = check_role_permission(chat_id, user.id, PERM_VIEW_LISTS)
     return bool(allowed)
