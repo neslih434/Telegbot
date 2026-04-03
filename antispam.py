@@ -1474,6 +1474,9 @@ def _should_block_by_type(types_config: dict, src_type: str) -> bool:
     any_type_enabled = any(types_config.values())
     # Legacy fallback: if no specific type is selected, block all sources
     return bool(types_config.get(src_type)) if any_type_enabled else True
+
+
+def _antispam_runtime_check(m: types.Message) -> None:
     chat_id = int(m.chat.id)
     if not is_group_approved(chat_id):
         return
