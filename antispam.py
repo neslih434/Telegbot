@@ -312,7 +312,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
         f"<b>Удаление сообщений:</b> {delete_txt}\n"
         f"<b>Наказание:</b> <code>{_html.escape(punish_label)}</code>\n"
         f"<b>Длительность:</b> <code>{_html.escape(dur_label)}</code>\n"
-        f"<b>{_html.escape(label)}:</b>\n<blockquote>{exc_items}</blockquote>"
+        f"<b>Исключения:</b>\n<blockquote>{exc_items}</blockquote>"
     )
 
     if section == "tg_links":
@@ -1492,15 +1492,17 @@ def _extract_entity_urls(m: types.Message) -> list[str]:
     These are hyperlinks hidden inside visible text like [word](https://spam.com)
     and are not part of the raw text string.
     """
-    raw_text = (getattr(m, "text", None) or getattr(m, "caption", None) or "")
     urls: list[str] = []
-    for attr in ("entities", "caption_entities"):
+    msg_text = getattr(m, "text", None) or ""
+    msg_caption = getattr(m, "caption", None) or ""
+    # Map each entity attribute to its corresponding source text
+    for attr, src in (("entities", msg_text), ("caption_entities", msg_caption)):
         for entity in (getattr(m, attr, None) or []):
             etype = getattr(entity, "type", "")
             if etype == "url":
                 offset = int(getattr(entity, "offset", 0) or 0)
                 length = int(getattr(entity, "length", 0) or 0)
-                url = raw_text[offset:offset + length]
+                url = src[offset:offset + length]
                 if url:
                     urls.append(url)
             elif etype == "text_link":
