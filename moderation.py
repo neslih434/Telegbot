@@ -215,7 +215,7 @@ def _mod_get_chat(chat_id: int) -> dict:
         },
     }
     # antispam section
-    def _asp_section(key: str, extra_keys: list | None = None) -> dict:
+    def _asp_section(key: str, extra_keys: list | None = None, dict_keys: list | None = None) -> dict:
         raw = (settings.get("antispam") or {}).get(key) or {}
         p = raw.get("punish") or {}
         pt = str(p.get("type") or "warn").strip().lower()
@@ -245,13 +245,16 @@ def _mod_get_chat(chat_id: int) -> dict:
         }
         for ek in (extra_keys or []):
             result[ek] = bool(raw.get(ek, False))
+        for dk in (dict_keys or []):
+            val = raw.get(dk)
+            result[dk] = val if isinstance(val, dict) else {}
         return result
 
     asp = settings.get("antispam") or {}
     settings["antispam"] = {
-        "tg_links": _asp_section("tg_links", extra_keys=["check_usernames", "check_bots"]),
-        "quoting": _asp_section("quoting"),
-        "forwarding": _asp_section("forwarding"),
+        "tg_links": _asp_section("tg_links", extra_keys=["check_usernames", "check_user_usernames", "check_bots"]),
+        "quoting": _asp_section("quoting", dict_keys=["types"]),
+        "forwarding": _asp_section("forwarding", dict_keys=["types"]),
         "all_links": _asp_section("all_links"),
     }
 
