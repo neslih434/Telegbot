@@ -47,6 +47,7 @@ from settings_ui import (
     _bot_can_delete_messages,
     _get_bot_id,
     MIN_PUNISH_SECONDS, MAX_PUNISH_SECONDS,
+    CLEANUP_ICON_ENABLE_ID, CLEANUP_ICON_DISABLE_ID,
 )
 
 # ─────────────────────────────────────────────
@@ -334,6 +335,17 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
             hint = "\n\nДля выбранного типа наказания длительность не используется."
         else:
             hint = "\n\n<i>Установите длительность наказания.</i>"
+    elif page.startswith("flag_"):
+        flag_names = {
+            "flag_usernames": "Юзернеймы",
+            "flag_bots": "Боты",
+            "flag_user_usernames": "Пользовательские юзернеймы",
+        }
+        hint = f"\n\n<i>Управление фильтром «{flag_names.get(page, page)}».</i>"
+    elif page.startswith("type_"):
+        type_key = page[5:]
+        t_label = _FWD_QUOTE_TYPES.get(type_key, type_key)
+        hint = f"\n\n<i>Управление фильтром «{t_label}».</i>"
 
     return text + hint
 
@@ -459,6 +471,7 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
     delete_messages = sec["delete_messages"]
 
     kb = InlineKeyboardMarkup(row_width=2)
+    inv = "\u2063"
 
     # ── Статус — single toggle button (green when on, red when off) ──
     b_status = InlineKeyboardButton(
@@ -482,55 +495,118 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
         pass
     kb.add(b_del)
 
-    # ── tg_links: direct toggle buttons for each flag ──
+    # ── tg_links: [Юзернеймы][Боты] row + [Пользовательские юзернеймы] row (expandable) ──
     if section == "tg_links":
-        un_on = bool(sec.get("check_usernames", False))
-        bot_on = bool(sec.get("check_bots", False))
-        uu_on = bool(sec.get("check_user_usernames", False))
+        un_title = "»Юзернеймы«" if page == "flag_usernames" else "Юзернеймы"
+        bot_title = "»Боты«" if page == "flag_bots" else "Боты"
         b_un = InlineKeyboardButton(
-            f"{'✅' if un_on else '❌'} Юзернеймы",
-            callback_data=f"stas:tgflip:{chat_id}:{section}:usernames",
+            un_title,
+            callback_data=f"stas:page:{chat_id}:{section}:flag_usernames",
         )
-        b_bot_flag = InlineKeyboardButton(
-            f"{'✅' if bot_on else '❌'} Боты",
-            callback_data=f"stas:tgflip:{chat_id}:{section}:bots",
+        b_bot = InlineKeyboardButton(
+            bot_title,
+            callback_data=f"stas:page:{chat_id}:{section}:flag_bots",
         )
         try:
-            b_un.style = "success" if un_on else "secondary"
-            b_bot_flag.style = "success" if bot_on else "secondary"
+            if page == "flag_usernames":
+                b_un.style = "primary"
+            if page == "flag_bots":
+                b_bot.style = "primary"
         except Exception:
             pass
-        kb.row(b_un, b_bot_flag)
+        kb.row(b_un, b_bot)
+
+        if page == "flag_usernames":
+            is_on = bool(sec.get("check_usernames", False))
+            on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
+            b_on = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:usernames:1")
+            b_off = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:usernames:0")
+            try:
+                b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
+                b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
+                b_on.style = on_s
+                b_off.style = off_s
+            except Exception:
+                pass
+            kb.row(b_on, b_off)
+        elif page == "flag_bots":
+            is_on = bool(sec.get("check_bots", False))
+            on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
+            b_on = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:bots:1")
+            b_off = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:bots:0")
+            try:
+                b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
+                b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
+                b_on.style = on_s
+                b_off.style = off_s
+            except Exception:
+                pass
+            kb.row(b_on, b_off)
+
+        uu_title = "»Пользовательские юзернеймы«" if page == "flag_user_usernames" else "Пользовательские юзернеймы"
         b_uu = InlineKeyboardButton(
-            f"{'✅' if uu_on else '❌'} Пользовательские юзернеймы",
-            callback_data=f"stas:tgflip:{chat_id}:{section}:user_usernames",
+            uu_title,
+            callback_data=f"stas:page:{chat_id}:{section}:flag_user_usernames",
         )
         try:
-            b_uu.style = "success" if uu_on else "secondary"
+            if page == "flag_user_usernames":
+                b_uu.style = "primary"
         except Exception:
             pass
         kb.add(b_uu)
 
-    # ── quoting / forwarding: per-type flags as direct toggle buttons ──
+        if page == "flag_user_usernames":
+            is_on = bool(sec.get("check_user_usernames", False))
+            on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
+            b_on = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:user_usernames:1")
+            b_off = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:user_usernames:0")
+            try:
+                b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
+                b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
+                b_on.style = on_s
+                b_off.style = off_s
+            except Exception:
+                pass
+            kb.row(b_on, b_off)
+
+    # ── quoting / forwarding: per-type flags in pairs (expandable) ──
     if section in ("quoting", "forwarding"):
         types = sec.get("types") or {}
         type_keys = list(_FWD_QUOTE_TYPES.keys())
         for i in range(0, len(type_keys), 2):
             pair = type_keys[i:i + 2]
             row_btns = []
+            active_in_pair: str | None = None
             for t_key in pair:
                 t_label = _FWD_QUOTE_TYPES[t_key]
-                is_on = bool(types.get(t_key, False))
+                is_active = page == f"type_{t_key}"
+                title = f"»{t_label}«" if is_active else t_label
                 b = InlineKeyboardButton(
-                    f"{'✅' if is_on else '❌'} {t_label}",
-                    callback_data=f"stas:typeflip:{chat_id}:{section}:{t_key}",
+                    title,
+                    callback_data=f"stas:page:{chat_id}:{section}:type_{t_key}",
                 )
                 try:
-                    b.style = "success" if is_on else "secondary"
+                    if is_active:
+                        b.style = "primary"
                 except Exception:
                     pass
                 row_btns.append(b)
+                if is_active:
+                    active_in_pair = t_key
             kb.row(*row_btns)
+            if active_in_pair:
+                is_on = bool(types.get(active_in_pair, False))
+                on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
+                b_on = InlineKeyboardButton(inv, callback_data=f"stas:typeflset:{chat_id}:{section}:{active_in_pair}:1")
+                b_off = InlineKeyboardButton(inv, callback_data=f"stas:typeflset:{chat_id}:{section}:{active_in_pair}:0")
+                try:
+                    b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
+                    b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
+                    b_on.style = on_s
+                    b_off.style = off_s
+                except Exception:
+                    pass
+                kb.row(b_on, b_off)
 
     # ── Наказание and Длительность in same row (expandable) ──
     b_punish_title = "»Наказание«" if page == "punish" else "Наказание"
@@ -957,54 +1033,6 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
         return_page = f"type_{type_key}"
         text = _render_antispam_section(chat_id, section, return_page)
         kb = _build_antispam_section_keyboard(chat_id, section, return_page)
-        if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
-            bot.answer_callback_query(c.id, "Не удалось обновить раздел.", show_alert=True)
-            return
-        bot.answer_callback_query(c.id)
-        return
-
-    # ── per-type direct toggle for quoting/forwarding ──
-    elif action == "typeflip":
-        if section not in ("quoting", "forwarding"):
-            bot.answer_callback_query(c.id)
-            return
-        type_key = (extra or "").strip().lower()
-        if type_key in _FWD_QUOTE_TYPES:
-            types = dict(sec.get("types") or {})
-            types[type_key] = not bool(types.get(type_key, False))
-            sec["types"] = types
-            _antispam_save_section(chat_id, section, sec)
-        else:
-            bot.answer_callback_query(c.id)
-            return
-        text = _render_antispam_section(chat_id, section, "main")
-        kb = _build_antispam_section_keyboard(chat_id, section, "main")
-        if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
-            bot.answer_callback_query(c.id, "Не удалось обновить раздел.", show_alert=True)
-            return
-        bot.answer_callback_query(c.id)
-        return
-
-    # ── tg_links direct flag toggle ──
-    elif action == "tgflip":
-        if section != "tg_links":
-            bot.answer_callback_query(c.id)
-            return
-        flag = (extra or "").strip().lower()
-        if flag == "usernames":
-            sec["check_usernames"] = not bool(sec.get("check_usernames", False))
-            _antispam_save_section(chat_id, section, sec)
-        elif flag == "user_usernames":
-            sec["check_user_usernames"] = not bool(sec.get("check_user_usernames", False))
-            _antispam_save_section(chat_id, section, sec)
-        elif flag == "bots":
-            sec["check_bots"] = not bool(sec.get("check_bots", False))
-            _antispam_save_section(chat_id, section, sec)
-        else:
-            bot.answer_callback_query(c.id)
-            return
-        text = _render_antispam_section(chat_id, section, "main")
-        kb = _build_antispam_section_keyboard(chat_id, section, "main")
         if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
             bot.answer_callback_query(c.id, "Не удалось обновить раздел.", show_alert=True)
             return
