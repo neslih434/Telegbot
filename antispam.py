@@ -31,6 +31,7 @@ from moderation import (
     _auto_punish_for_warns,
     _apply_mute, _apply_ban,
     _mark_farewell_suppressed,
+    _send_punish_message_with_button,
 )
 from helpers import (
     is_owner, is_dev, is_group_approved, get_user_rank,
@@ -166,6 +167,48 @@ def _as_pending_pop_cid_sec(key_prefix: str, user_id: int) -> tuple[Optional[int
 # Settings access
 # ─────────────────────────────────────────────
 
+def _antispam_get_exceptions(chat_id: int) -> list:
+    """Returns the global (shared) anti-spam exceptions list for the chat."""
+    settings = (_mod_get_chat(chat_id).get("settings") or {})
+    asp = settings.get("antispam") or {}
+    # Migrate any per-section exceptions into the global list (one-time)
+    global_exc = asp.get("exceptions")
+    if not isinstance(global_exc, list):
+        global_exc = []
+    existing_lower = {e.lower() for e in global_exc if e}
+    migrated = False
+    for section_key in _ANTISPAM_SECTIONS:
+        sec_data = asp.get(section_key) or {}
+        per_sec = sec_data.get("exceptions")
+        if isinstance(per_sec, list) and per_sec:
+            for e in per_sec:
+                if e and e.lower() not in existing_lower:
+                    global_exc.append(str(e))
+                    existing_lower.add(e.lower())
+                    migrated = True
+            sec_data.pop("exceptions", None)
+            asp[section_key] = sec_data
+    if migrated:
+        asp["exceptions"] = global_exc
+        ch = _mod_get_chat(chat_id)
+        s = ch.get("settings") or {}
+        s["antispam"] = asp
+        ch["settings"] = s
+        _mod_save()
+    return [str(e) for e in global_exc if e]
+
+
+def _antispam_save_exceptions(chat_id: int, exceptions: list) -> None:
+    """Saves the global (shared) anti-spam exceptions list for the chat."""
+    ch = _mod_get_chat(chat_id)
+    settings = ch.get("settings") or {}
+    asp = settings.get("antispam") or {}
+    asp["exceptions"] = [str(e) for e in exceptions if e]
+    settings["antispam"] = asp
+    ch["settings"] = settings
+    _mod_save()
+
+
 def _antispam_get_section(chat_id: int, section: str) -> dict:
     """Returns validated settings for one anti-spam section."""
     settings = (_mod_get_chat(chat_id).get("settings") or {})
@@ -186,7 +229,8 @@ def _antispam_get_section(chat_id: int, section: str) -> dict:
                 pd = 3600
     else:
         pd = None
-    exc = raw.get("exceptions")
+    # Use shared (global) exceptions list
+    exc = asp.get("exceptions")
     if not isinstance(exc, list):
         exc = []
     result: dict = {
@@ -212,7 +256,9 @@ def _antispam_save_section(chat_id: int, section: str, data: dict) -> None:
     ch = _mod_get_chat(chat_id)
     settings = ch.get("settings") or {}
     asp = settings.get("antispam") or {}
-    asp[section] = data
+    # Never store exceptions inside per-section data — they live in asp["exceptions"]
+    section_data = {k: v for k, v in data.items() if k != "exceptions"}
+    asp[section] = section_data
     settings["antispam"] = asp
     ch["settings"] = settings
     _mod_save()
@@ -229,8 +275,14 @@ def _render_antispam_main(chat_id: int) -> str:
     for key, label in _ANTISPAM_SECTIONS.items():
         sec = _antispam_get_section(chat_id, key)
         status_txt = "<code>включено</code>" if sec["enabled"] else "<code>выключено</code>"
-        exc_count = len(sec.get("exceptions") or [])
-        lines.append(f"<b>{label}:</b> {status_txt}\nИсключения: {exc_count}")
+        lines.append(f"<b>{label}:</b> {status_txt}")
+    # Shared exceptions list displayed once
+    exceptions = _antispam_get_exceptions(chat_id)
+    if exceptions:
+        exc_items = "\n".join(f"• <code>{_html.escape(e)}</code>" for e in exceptions)
+    else:
+        exc_items = "• нет"
+    lines.append(f"\n<b>Исключения (общие):</b>\n<blockquote>{exc_items}</blockquote>")
     return "\n".join(lines)
 
 
@@ -248,7 +300,10 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
     punish_label = _PUNISH_LABELS.get(ptype, "Предупреждение")
     dur_label = "Не используется" if ptype in ("warn", "kick") else _mod_duration_text(int(dur or 0))
     exceptions = sec.get("exceptions") or []
-    exc_count = len(exceptions)
+    if exceptions:
+        exc_items = "\n".join(f"• <code>{_html.escape(e)}</code>" for e in exceptions)
+    else:
+        exc_items = "• нет"
 
     text = (
         f"{emoji_settings} <b>{label}</b>\n\n"
@@ -257,7 +312,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
         f"<b>Удаление сообщений:</b> {delete_txt}\n"
         f"<b>Наказание:</b> <code>{_html.escape(punish_label)}</code>\n"
         f"<b>Длительность:</b> <code>{_html.escape(dur_label)}</code>\n"
-        f"<b>Исключения:</b> {exc_count}"
+        f"<b>Исключения:</b>\n<blockquote>{exc_items}</blockquote>"
     )
 
     if section == "tg_links":
@@ -287,7 +342,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
         else:
             hint = "\n\n<i>Установите длительность наказания.</i>"
     elif page in ("exceptions", "exceptions_list", "exceptions_delete"):
-        hint = "\n\n<i>Управление исключениями. Сообщения, содержащие любой из этих шаблонов (подстрок), не будут считаться нарушением.</i>"
+        hint = "\n\n<i>Управление исключениями (общие для всех разделов). Сообщения, содержащие любой из этих шаблонов, не будут считаться нарушением.</i>"
     elif page.startswith("flag_"):
         flag_names = {
             "flag_usernames": "Юзернеймы",
@@ -399,27 +454,25 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
 
         if page == "flag_usernames":
             is_on = bool(sec.get("check_usernames", False))
-            on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
             b_on = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:usernames:1")
             b_off = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:usernames:0")
             try:
                 b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
                 b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
-                b_on.style = on_s
-                b_off.style = off_s
+                b_on.style = "success" if is_on else "danger"
+                b_off.style = "danger" if is_on else "success"
             except Exception:
                 pass
             kb.row(b_on, b_off)
         elif page == "flag_bots":
             is_on = bool(sec.get("check_bots", False))
-            on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
             b_on = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:bots:1")
             b_off = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:bots:0")
             try:
                 b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
                 b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
-                b_on.style = on_s
-                b_off.style = off_s
+                b_on.style = "success" if is_on else "danger"
+                b_off.style = "danger" if is_on else "success"
             except Exception:
                 pass
             kb.row(b_on, b_off)
@@ -438,14 +491,13 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
 
         if page == "flag_user_usernames":
             is_on = bool(sec.get("check_user_usernames", False))
-            on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
             b_on = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:user_usernames:1")
             b_off = InlineKeyboardButton(inv, callback_data=f"stas:tgflset:{chat_id}:{section}:user_usernames:0")
             try:
                 b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
                 b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
-                b_on.style = on_s
-                b_off.style = off_s
+                b_on.style = "success" if is_on else "danger"
+                b_off.style = "danger" if is_on else "success"
             except Exception:
                 pass
             kb.row(b_on, b_off)
@@ -477,14 +529,13 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
             kb.row(*row_btns)
             if active_in_pair:
                 is_on = bool(types.get(active_in_pair, False))
-                on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
                 b_on = InlineKeyboardButton(inv, callback_data=f"stas:typeflset:{chat_id}:{section}:{active_in_pair}:1")
                 b_off = InlineKeyboardButton(inv, callback_data=f"stas:typeflset:{chat_id}:{section}:{active_in_pair}:0")
                 try:
                     b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
                     b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
-                    b_on.style = on_s
-                    b_off.style = off_s
+                    b_on.style = "success" if is_on else "danger"
+                    b_off.style = "danger" if is_on else "success"
                 except Exception:
                     pass
                 kb.row(b_on, b_off)
@@ -544,7 +595,7 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
         )
         kb.add(b_list)
 
-        exceptions = sec.get("exceptions") or []
+        exceptions = _antispam_get_exceptions(chat_id)
         if len(exceptions) < MAX_EXCEPTIONS:
             b_add = InlineKeyboardButton(
                 "Добавить исключение",
@@ -569,7 +620,7 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
         kb.add(b_del_exc)
 
     elif page == "exceptions_list":
-        exceptions = sec.get("exceptions") or []
+        exceptions = _antispam_get_exceptions(chat_id)
         if exceptions:
             for exc in exceptions:
                 b_item = InlineKeyboardButton(
@@ -582,7 +633,7 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
             kb.add(b_empty)
 
     elif page == "exceptions_delete":
-        exceptions = sec.get("exceptions") or []
+        exceptions = _antispam_get_exceptions(chat_id)
         if exceptions:
             for idx, exc in enumerate(exceptions):
                 b_del = InlineKeyboardButton(
@@ -725,8 +776,7 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
 
         # Special handling for exceptions_list: delete message and send text list
         if extra == "exceptions_list":
-            sec_data = _antispam_get_section(chat_id, section)
-            exceptions = sec_data.get("exceptions") or []
+            exceptions = _antispam_get_exceptions(chat_id)
             label = _ANTISPAM_SECTIONS[section]
             if exceptions:
                 exc_lines = "\n".join(
@@ -823,7 +873,7 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
 
     # ── add exception prompt ──
     elif action == "exc_add":
-        exceptions = sec.get("exceptions") or []
+        exceptions = _antispam_get_exceptions(chat_id)
         if len(exceptions) >= MAX_EXCEPTIONS:
             bot.answer_callback_query(c.id, f"Достигнут лимит исключений ({MAX_EXCEPTIONS}).", show_alert=True)
             return
@@ -841,7 +891,7 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
         kb_prompt.add(b_back)
 
         prompt_text = (
-            f"<b>Добавить исключение для «{_ANTISPAM_SECTIONS[section]}»</b>\n\n"
+            "<b>Добавить исключение (общее для всех разделов анти-спама)</b>\n\n"
             "Введите ссылку, которая будет исключена из проверки.\n"
             "<b>Примеры:</b> <code>t.me/mygroup</code>, <code>https://example.com</code>, <code>www.site.com</code>, <code>@myfriend</code>"
         )
@@ -858,7 +908,7 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
 
     # ── delete exception prompt (text input) ──
     elif action == "exc_del_prompt":
-        exceptions = sec.get("exceptions") or []
+        exceptions = _antispam_get_exceptions(chat_id)
         if not exceptions:
             bot.answer_callback_query(c.id, "Список исключений пуст.", show_alert=True)
             return
@@ -897,11 +947,10 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
         except Exception:
             bot.answer_callback_query(c.id)
             return
-        exceptions = list(sec.get("exceptions") or [])
+        exceptions = list(_antispam_get_exceptions(chat_id))
         if 0 <= idx < len(exceptions):
             exceptions.pop(idx)
-            sec["exceptions"] = exceptions
-            _antispam_save_section(chat_id, section, sec)
+            _antispam_save_exceptions(chat_id, exceptions)
         text = _render_antispam_section(chat_id, section, "exceptions_delete")
         kb = _build_antispam_section_keyboard(chat_id, section, "exceptions_delete")
         if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
@@ -1161,13 +1210,11 @@ def handle_antispam_private_pending(m: types.Message) -> bool:
             )
             return True
 
-        sec = _antispam_get_section(exc_cid, exc_sec)
-        exceptions = list(sec.get("exceptions") or [])
+        exceptions = list(_antispam_get_exceptions(exc_cid))
         if pattern.lower() not in [e.lower() for e in exceptions]:
             if len(exceptions) < MAX_EXCEPTIONS:
                 exceptions.append(pattern)
-                sec["exceptions"] = exceptions
-                _antispam_save_section(exc_cid, exc_sec, sec)
+                _antispam_save_exceptions(exc_cid, exceptions)
 
         _as_pending_pop_cid_sec("pending_antispam_exception", user_id)
         prompt_id = _pending_msg_pop("pending_antispam_exception_msg", user_id)
@@ -1222,8 +1269,7 @@ def handle_antispam_private_pending(m: types.Message) -> bool:
             )
             return True
 
-        sec = _antispam_get_section(exc_del_cid, exc_del_sec)
-        exceptions = list(sec.get("exceptions") or [])
+        exceptions = list(_antispam_get_exceptions(exc_del_cid))
 
         # Find by exact match (case-insensitive), then partial match
         pattern_lower = pattern.lower()
@@ -1247,8 +1293,7 @@ def handle_antispam_private_pending(m: types.Message) -> bool:
             ok_text = premium_prefix(f"❌ Исключение не найдено: <code>{_html.escape(pattern)}</code>.")
         else:
             deleted_exc = exceptions.pop(to_delete_idx)
-            sec["exceptions"] = exceptions
-            _antispam_save_section(exc_del_cid, exc_del_sec, sec)
+            _antispam_save_exceptions(exc_del_cid, exceptions)
             ok_text = premium_prefix(f"✅ Исключение <code>{_html.escape(deleted_exc)}</code> удалено.")
 
         kb_ok = InlineKeyboardMarkup()
@@ -1307,53 +1352,6 @@ def _antispam_matches_exceptions(text: str, exceptions: list) -> bool:
     return False
 
 
-def _antispam_send_punish_message(
-    chat_id: int,
-    section: str,
-    action_kind: str,
-    action_id: str,
-    target_id: int,
-    actor_id: int,
-    until_ts: Optional[int],
-) -> None:
-    section_label = _ANTISPAM_SECTIONS.get(section, section)
-    punish_label = _PUNISH_LABELS.get(action_kind, "Наказание")
-    target_name = link_for_user(chat_id, target_id)
-    actor_name = link_for_user(chat_id, actor_id)
-
-    until_line = "Не используется"
-    if action_kind in ("mute", "ban"):
-        if until_ts and int(until_ts) > 0:
-            try:
-                from datetime import datetime
-                until_line = datetime.fromtimestamp(int(until_ts)).strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                until_line = "навсегда"
-        else:
-            until_line = "навсегда"
-
-    text = (
-        f"<b>Пользователь</b> {target_name} <b>нарушил правило «{_html.escape(section_label)}».</b>\n"
-        f"<b>Наказание:</b> {punish_label}\n"
-        f"<b>Истекает:</b> {until_line}\n\n"
-        f"<b>Администратор:</b> {actor_name}"
-    )
-
-    kb = None
-    if action_kind in ("mute", "ban", "warn"):
-        btn_text = {"mute": "Снять ограничение", "ban": "Разблокировать", "warn": "Снять предупреждение"}[action_kind]
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton(
-            btn_text,
-            callback_data=f"punish_un:{chat_id}:{action_kind}:{target_id}:{action_id}",
-        ))
-
-    try:
-        bot.send_message(chat_id, text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=kb)
-    except Exception:
-        pass
-
-
 def _antispam_apply_punishment(
     chat_id: int,
     user: types.User,
@@ -1390,7 +1388,11 @@ def _antispam_apply_punishment(
             except Exception:
                 pass
         else:
-            _antispam_send_punish_message(chat_id, section, "warn", action_id, target_id, actor_id, None)
+            _send_punish_message_with_button(
+                chat_id, "warn", action_id, target_id, actor_id,
+                None, reason,
+                warn_count=count_after, warn_limit=warn_limit,
+            )
         return
 
     if ptype == "kick":
@@ -1407,8 +1409,9 @@ def _antispam_apply_punishment(
                 return
         except Exception:
             return
-        row = {
-            "id": _mod_new_action_id(),
+        kick_action_id = _mod_new_action_id()
+        kick_row = {
+            "id": kick_action_id,
             "target_id": target_id,
             "actor_id": actor_id,
             "created_at": _time.time(),
@@ -1416,8 +1419,21 @@ def _antispam_apply_punishment(
             "reason": reason, "active": True,
             "auto": True, "source": f"antispam:{section}",
         }
-        _mod_log_append(chat_id, "kick", row)
-        _antispam_send_punish_message(chat_id, section, "kick", str(row["id"]), target_id, actor_id, None)
+        _mod_log_append(chat_id, "kick", kick_row)
+        # Kicks have no undo button — send plain message
+        try:
+            emoji_p = f'<tg-emoji emoji-id="{EMOJI_UNPUNISH_ID}">⚠️</tg-emoji>'
+            tname = link_for_user(chat_id, target_id)
+            aname = link_for_user(chat_id, actor_id)
+            txt = (
+                f"{emoji_p} <b>Пользователь</b> {tname} <b>наказан.</b>\n"
+                f"<b>Наказание:</b> Исключение\n"
+                f"<b>Причина:</b> {_html.escape(reason)}\n\n"
+                f"<b>Администратор:</b> {aname}"
+            )
+            bot.send_message(chat_id, txt, parse_mode="HTML", disable_web_page_preview=True)
+        except Exception:
+            pass
         return
 
     # mute / ban
@@ -1462,7 +1478,38 @@ def _antispam_apply_punishment(
         "reason": row["reason"],
     }
     _mod_save()
-    _antispam_send_punish_message(chat_id, section, ptype, action_id, target_id, actor_id, int(until_ts or 0))
+    _send_punish_message_with_button(
+        chat_id, ptype, action_id, target_id, actor_id,
+        int(duration or 0), reason,
+        until_ts=int(until_ts or 0),
+        created_at=row["created_at"],
+    )
+
+
+def _extract_entity_urls(m: types.Message) -> list[str]:
+    """
+    Extract all URLs embedded in message entities (text_link, url types).
+    These are hyperlinks hidden inside visible text like [word](https://spam.com)
+    and are not part of the raw text string.
+    """
+    urls: list[str] = []
+    msg_text = getattr(m, "text", None) or ""
+    msg_caption = getattr(m, "caption", None) or ""
+    # Map each entity attribute to its corresponding source text
+    for attr, src in (("entities", msg_text), ("caption_entities", msg_caption)):
+        for entity in (getattr(m, attr, None) or []):
+            etype = getattr(entity, "type", "")
+            if etype == "url":
+                offset = int(getattr(entity, "offset", 0) or 0)
+                length = int(getattr(entity, "length", 0) or 0)
+                url = src[offset:offset + length]
+                if url:
+                    urls.append(url)
+            elif etype == "text_link":
+                url = str(getattr(entity, "url", "") or "")
+                if url:
+                    urls.append(url)
+    return urls
 
 
 def _should_block_by_type(types_config: dict, src_type: str) -> bool:
@@ -1488,30 +1535,35 @@ def _antispam_runtime_check(m: types.Message) -> None:
     text = (getattr(m, "text", None) or getattr(m, "caption", None) or "")
     msg_id = int(getattr(m, "message_id", 0) or 0)
 
+    # Collect entity-embedded URLs (links hidden inside visible text)
+    entity_urls = _extract_entity_urls(m)
+    # Combined scan text: visible text + all embedded URLs
+    combined_text = text + (" " + " ".join(entity_urls) if entity_urls else "")
+
+    # Shared exceptions list (used for all sections)
+    exceptions = _antispam_get_exceptions(chat_id)
+
     # ── tg_links ──
     sec_tg = _antispam_get_section(chat_id, "tg_links")
     if sec_tg["enabled"]:
-        exceptions = sec_tg.get("exceptions") or []
         violation = False
-        # Check t.me / telegram.me URLs
-        if _TG_URL_RE.search(text):
+        # Check t.me / telegram.me URLs in text and entity URLs
+        if _TG_URL_RE.search(combined_text):
             violation = True
         # Check @usernames of groups/channels if toggle is on.
-        # Note: it is not possible to distinguish group/channel from user @usernames
-        # by text content alone; this flag blocks all @mentions that are not bot names.
-        if not violation and sec_tg.get("check_usernames") and _TG_USERNAME_RE.search(text):
+        if not violation and sec_tg.get("check_usernames") and _TG_USERNAME_RE.search(combined_text):
             violation = True
         # Check @...bot usernames if bots toggle is on
         if not violation and sec_tg.get("check_bots"):
-            for match in _TG_USERNAME_RE.finditer(text):
+            for match in _TG_USERNAME_RE.finditer(combined_text):
                 uname = match.group(0).lower()
                 if uname.endswith("bot"):
                     violation = True
                     break
         # Check regular user @usernames if user_usernames toggle is on
-        if not violation and sec_tg.get("check_user_usernames") and _TG_USERNAME_RE.search(text):
+        if not violation and sec_tg.get("check_user_usernames") and _TG_USERNAME_RE.search(combined_text):
             violation = True
-        if violation and not _antispam_matches_exceptions(text, exceptions):
+        if violation and not _antispam_matches_exceptions(combined_text, exceptions):
             _antispam_apply_punishment(chat_id, user, "tg_links", sec_tg, msg_id)
             return
 
@@ -1542,8 +1594,7 @@ def _antispam_runtime_check(m: types.Message) -> None:
 
             fwd_types = sec_fwd.get("types") or {}
             if _should_block_by_type(fwd_types, src_type):
-                exceptions = sec_fwd.get("exceptions") or []
-                fwd_text = text
+                fwd_text = combined_text
                 if fwd_from:
                     fwd_text += " " + str(getattr(fwd_from, "username", "") or "")
                 if fwd_from_chat:
@@ -1584,17 +1635,15 @@ def _antispam_runtime_check(m: types.Message) -> None:
 
             qt_types = sec_qt.get("types") or {}
             if _should_block_by_type(qt_types, src_type):
-                exceptions = sec_qt.get("exceptions") or []
-                if not _antispam_matches_exceptions(text, exceptions):
+                if not _antispam_matches_exceptions(combined_text, exceptions):
                     _antispam_apply_punishment(chat_id, user, "quoting", sec_qt, msg_id)
                     return
 
     # ── all_links ──
     sec_al = _antispam_get_section(chat_id, "all_links")
     if sec_al["enabled"]:
-        if _ALL_LINKS_RE.search(text):
-            exceptions = sec_al.get("exceptions") or []
-            if not _antispam_matches_exceptions(text, exceptions):
+        if _ALL_LINKS_RE.search(combined_text) or entity_urls:
+            if not _antispam_matches_exceptions(combined_text, exceptions):
                 _antispam_apply_punishment(chat_id, user, "all_links", sec_al, msg_id)
                 return
 
