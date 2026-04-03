@@ -1866,7 +1866,7 @@ def _get_bot_info_cached() -> dict:
             name_parts = [getattr(me, "first_name", "") or "", getattr(me, "last_name", "") or ""]
             full_name = " ".join(p for p in name_parts if p).strip() or getattr(me, "username", "") or "Бот"
             _BOT_INFO_CACHE = {
-                "id": int(getattr(me, "id", 0) or 0),
+                "id": int(getattr(me, "id", 0)),
                 "username": (getattr(me, "username", "") or "").lower(),
                 "full_name": full_name,
             }

@@ -703,9 +703,9 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
                 exc_lines = "\n".join(
                     f"{i + 1}. <code>{_html.escape(e)}</code>" for i, e in enumerate(exceptions)
                 )
-                list_text = f"<b>Список исключений (анти-спам):</b>\n\n{exc_lines}"
+                list_text = f"<b>Общие исключения анти-спама:</b>\n\n{exc_lines}"
             else:
-                list_text = "<b>Список исключений (анти-спам):</b>\n\nСписок пуст."
+                list_text = "<b>Общие исключения анти-спама:</b>\n\nСписок пуст."
             kb_list = InlineKeyboardMarkup(row_width=1)
             b_back_list = InlineKeyboardButton("Назад", callback_data=f"stas:page:{chat_id}:{section}:exceptions")
             try:
@@ -857,7 +857,7 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
         kb_prompt.add(b_back)
 
         prompt_text = (
-            "<b>Удалить исключение (анти-спам)</b>\n\n"
+            "<b>Удалить исключение (общее для всех разделов анти-спама)</b>\n\n"
             "Введите исключение (полностью или частично) для удаления."
         )
         sent = bot.send_message(
