@@ -61,7 +61,7 @@ _ANTISPAM_SECTIONS: dict[str, str] = {
 
 _ANTISPAM_SECTION_DESC: dict[str, str] = {
     "tg_links":   "Блокирует ссылки и упоминания ресурсов Telegram.",
-    "quoting":    "Блокирует пересланные сообщения из каналов (цитаты).",
+    "quoting":    "Блокирует сообщения с цитированием (выделение фрагмента при ответе).",
     "forwarding": "Блокирует пересланные сообщения от любых пользователей и чатов.",
     "all_links":  "Блокирует любые внешние ссылки в сообщениях.",
 }
@@ -87,6 +87,7 @@ _PUNISH_LABELS: dict[str, str] = {
 }
 
 MAX_EXCEPTIONS = 20  # Максимум исключений на раздел
+MAX_EXCEPTION_PATTERN_LEN = 100  # Максимальная длина шаблона исключения
 
 
 # ─────────────────────────────────────────────
@@ -351,7 +352,7 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
         exceptions = sec.get("exceptions") or []
         for idx, exc in enumerate(exceptions):
             b_del = InlineKeyboardButton(
-                f"🗑 {_html.escape(exc[:30])}",
+                f"🗑 {_html.escape(exc[:30] + ('…' if len(exc) > 30 else ''))}",
                 callback_data=f"stas:exc_del:{chat_id}:{section}:{idx}",
             )
             kb.add(b_del)
@@ -772,14 +773,14 @@ def handle_antispam_private_pending(m: types.Message) -> bool:
             )
             return True
 
-        if len(pattern) > 100:
+        if len(pattern) > MAX_EXCEPTION_PATTERN_LEN:
             kb_err = InlineKeyboardMarkup(row_width=1)
             kb_err.add(InlineKeyboardButton("Назад", callback_data=f"stas:page:{exc_cid}:{exc_sec}:exceptions"))
             _replace_pending_ui(
                 m.chat.id,
                 "pending_antispam_exception_msg",
                 user_id,
-                premium_prefix("Шаблон не должен превышать 100 символов."),
+                premium_prefix(f"Шаблон не должен превышать {MAX_EXCEPTION_PATTERN_LEN} символов."),
                 reply_markup=kb_err,
                 parse_mode="HTML",
             )
@@ -1073,10 +1074,11 @@ def _antispam_runtime_check(m: types.Message) -> None:
     # ── quoting ──
     sec_qt = _antispam_get_section(chat_id, "quoting")
     if sec_qt["enabled"]:
-        # Quote = reply with quoted excerpt (Bot API 7.0 feature)
+        # Quote = reply with quoted excerpt (Bot API 7.0 feature: m.quote or reply_to_message.quote)
+        reply_msg = getattr(m, "reply_to_message", None)
         is_quote = bool(
             getattr(m, "quote", None) or
-            getattr(getattr(m, "reply_to_message", None), "quote", None) if getattr(m, "reply_to_message", None) else False
+            (reply_msg is not None and getattr(reply_msg, "quote", None))
         )
         if is_quote:
             exceptions = sec_qt.get("exceptions") or []
