@@ -62,9 +62,9 @@ _ANTISPAM_SECTIONS: dict[str, str] = {
 
 _ANTISPAM_SECTION_DESC: dict[str, str] = {
     "tg_links":   "Блокирует ссылки и упоминания ресурсов Telegram.",
-    "quoting":    "Блокирует сообщения с цитированием (выделение фрагмента при ответе).",
-    "forwarding": "Блокирует пересланные сообщения от любых пользователей и чатов.",
-    "all_links":  "Блокирует любые внешние ссылки в сообщениях.",
+    "quoting":    "Блокирует сообщения с цитатами из выбранных источников.",
+    "forwarding": "Блокирует пересланные сообщения от выбранных источников.",
+    "all_links":  "Блокирует все ссылки.",
 }
 
 # Telegram-ссылки: t.me/..., telegram.me/..., tg://...
@@ -94,6 +94,12 @@ MAX_EXCEPTION_DISPLAY_LEN = 30  # Максимальная длина при о�
 # Exception add/delete premium emoji ids
 _EXCEPTION_ADD_EMOJI_ID = "5226945370684140473"
 _EXCEPTION_DEL_EMOJI_ID = "5229113891081956317"
+
+# Regex: valid exception patterns must look like a link or @username
+_VALID_EXCEPTION_RE = _re.compile(
+    r'^(?:https?://|www\.|t(?:elegram)?\.me/|telegram\.org/|tg://|@[a-zA-Z])',
+    _re.IGNORECASE,
+)
 
 # Valid sub-page names for the section keyboard
 _SECTION_VALID_PAGES = frozenset({
@@ -223,7 +229,8 @@ def _render_antispam_main(chat_id: int) -> str:
     for key, label in _ANTISPAM_SECTIONS.items():
         sec = _antispam_get_section(chat_id, key)
         status_txt = "<code>включено</code>" if sec["enabled"] else "<code>выключено</code>"
-        lines.append(f"<b>{label}:</b> {status_txt}")
+        exc_count = len(sec.get("exceptions") or [])
+        lines.append(f"<b>{label}:</b> {status_txt}\nИсключения: {exc_count}")
     return "\n".join(lines)
 
 
@@ -241,7 +248,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
     punish_label = _PUNISH_LABELS.get(ptype, "Предупреждение")
     dur_label = "Не используется" if ptype in ("warn", "kick") else _mod_duration_text(int(dur or 0))
     exceptions = sec.get("exceptions") or []
-    exc_text = ", ".join(f"<code>{_html.escape(e)}</code>" for e in exceptions) if exceptions else "нет"
+    exc_count = len(exceptions)
 
     text = (
         f"{emoji_settings} <b>{label}</b>\n\n"
@@ -250,7 +257,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
         f"<b>Удаление сообщений:</b> {delete_txt}\n"
         f"<b>Наказание:</b> <code>{_html.escape(punish_label)}</code>\n"
         f"<b>Длительность:</b> <code>{_html.escape(dur_label)}</code>\n"
-        f"<b>Исключения:</b> {exc_text}"
+        f"<b>Исключения:</b> {exc_count}"
     )
 
     if section == "tg_links":
@@ -267,7 +274,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
         types = sec.get("types") or {}
         type_lines = []
         for t_key, t_label in _FWD_QUOTE_TYPES.items():
-            t_txt = "<code>включено</code>" if types.get(t_key) else "<code>выключено</code>"
+            t_txt = "<code>да</code>" if types.get(t_key) else "<code>нет</code>"
             type_lines.append(f"<b>{t_label}:</b> {t_txt}")
         text += "\n" + "\n".join(type_lines)
 
@@ -302,17 +309,31 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
 
 def _build_antispam_main_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=2)
-    section_keys = list(_ANTISPAM_SECTIONS.keys())
-    for i in range(0, len(section_keys), 2):
-        row_btns = []
-        for key in section_keys[i:i+2]:
-            label = _ANTISPAM_SECTIONS[key]
-            btn = InlineKeyboardButton(
-                label,
-                callback_data=f"stas:sub:{chat_id}:{key}:main",
-            )
-            row_btns.append(btn)
-        kb.row(*row_btns)
+
+    # Row 1: Телеграм-ссылки (full width)
+    b_tg = InlineKeyboardButton(
+        "Телеграм-ссылки",
+        callback_data=f"stas:sub:{chat_id}:tg_links:main",
+    )
+    kb.row(b_tg)
+
+    # Row 2: Пересылка + Цитирование
+    b_fwd = InlineKeyboardButton(
+        "Пересылка",
+        callback_data=f"stas:sub:{chat_id}:forwarding:main",
+    )
+    b_quot = InlineKeyboardButton(
+        "Цитирование",
+        callback_data=f"stas:sub:{chat_id}:quoting:main",
+    )
+    kb.row(b_fwd, b_quot)
+
+    # Row 3: Блок всех ссылок (full width)
+    b_all = InlineKeyboardButton(
+        "Блок всех ссылок",
+        callback_data=f"stas:sub:{chat_id}:all_links:main",
+    )
+    kb.row(b_all)
 
     b_back = InlineKeyboardButton("Назад", callback_data=f"st_back_main:{chat_id}")
     try:
@@ -504,9 +525,9 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
             pass
         kb.add(b_set)
 
-    # ── Исключения button + sub-pages ──
+    # ── Управление исключениями button + sub-pages ──
     _exc_pages = ("exceptions", "exceptions_list", "exceptions_delete")
-    b_exc_title = "»Исключения«" if page in _exc_pages else "Исключения"
+    b_exc_title = "»Управление исключениями«" if page in _exc_pages else "Управление исключениями"
     b_exc = InlineKeyboardButton(b_exc_title, callback_data=f"stas:page:{chat_id}:{section}:exceptions")
     try:
         if page in _exc_pages:
@@ -538,7 +559,7 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
 
         b_del_exc = InlineKeyboardButton(
             "Удалить исключение",
-            callback_data=f"stas:page:{chat_id}:{section}:exceptions_delete",
+            callback_data=f"stas:exc_del_prompt:{chat_id}:{section}",
         )
         try:
             b_del_exc.icon_custom_emoji_id = str(_EXCEPTION_DEL_EMOJI_ID)
@@ -633,11 +654,13 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
         return
 
     # Clear pending states on most actions
-    if action not in ("dur_prompt", "exc_add"):
+    if action not in ("dur_prompt", "exc_add", "exc_del_prompt"):
         _as_pending_pop_cid_sec("pending_antispam_duration", user.id)
         _pending_msg_pop("pending_antispam_duration_msg", user.id)
         _as_pending_pop_cid_sec("pending_antispam_exception", user.id)
         _pending_msg_pop("pending_antispam_exception_msg", user.id)
+        _as_pending_pop_cid_sec("pending_antispam_exception_delete", user.id)
+        _pending_msg_pop("pending_antispam_exception_delete_msg", user.id)
 
     # ── open main antispam page ──
     if action == "open":
@@ -699,6 +722,41 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
     elif action == "page":
         if extra not in _SECTION_VALID_PAGES:
             extra = "main"
+
+        # Special handling for exceptions_list: delete message and send text list
+        if extra == "exceptions_list":
+            sec_data = _antispam_get_section(chat_id, section)
+            exceptions = sec_data.get("exceptions") or []
+            label = _ANTISPAM_SECTIONS[section]
+            if exceptions:
+                exc_lines = "\n".join(
+                    f"{i + 1}. <code>{_html.escape(e)}</code>" for i, e in enumerate(exceptions)
+                )
+                list_text = f"<b>Список исключений для «{_html.escape(label)}»:</b>\n\n{exc_lines}"
+            else:
+                list_text = f"<b>Список исключений для «{_html.escape(label)}»:</b>\n\nСписок пуст."
+            kb_list = InlineKeyboardMarkup(row_width=1)
+            b_back_list = InlineKeyboardButton("Назад", callback_data=f"stas:page:{chat_id}:{section}:exceptions")
+            try:
+                b_back_list.icon_custom_emoji_id = str(EMOJI_ROLE_SETTINGS_BACK_PREMIUM_ID)
+                b_back_list.style = "primary"
+            except Exception:
+                pass
+            kb_list.add(b_back_list)
+            try:
+                bot.delete_message(msg_chat.id, c.message.message_id)
+            except Exception:
+                pass
+            bot.send_message(
+                msg_chat.id,
+                list_text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=kb_list,
+            )
+            bot.answer_callback_query(c.id)
+            return
+
         text = _render_antispam_section(chat_id, section, extra)
         kb = _build_antispam_section_keyboard(chat_id, section, extra)
         if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
@@ -784,8 +842,8 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
 
         prompt_text = (
             f"<b>Добавить исключение для «{_ANTISPAM_SECTIONS[section]}»</b>\n\n"
-            "Введите шаблон (подстроку), который будет исключён из проверки.\n"
-            "<b>Примеры:</b> <code>t.me/mygroup</code>, <code>example.com</code>, <code>@myfriend</code>"
+            "Введите ссылку, которая будет исключена из проверки.\n"
+            "<b>Примеры:</b> <code>t.me/mygroup</code>, <code>https://example.com</code>, <code>www.site.com</code>, <code>@myfriend</code>"
         )
         sent = bot.send_message(
             msg_chat.id,
@@ -795,6 +853,40 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
             reply_markup=kb_prompt,
         )
         _pending_msg_set("pending_antispam_exception_msg", user.id, sent.message_id)
+        bot.answer_callback_query(c.id)
+        return
+
+    # ── delete exception prompt (text input) ──
+    elif action == "exc_del_prompt":
+        exceptions = sec.get("exceptions") or []
+        if not exceptions:
+            bot.answer_callback_query(c.id, "Список исключений пуст.", show_alert=True)
+            return
+
+        _as_pending_put("pending_antispam_exception_delete", user.id, chat_id, section)
+        _delete_pending_ui(msg_chat.id, "pending_antispam_exception_delete_msg", user.id, also_msg_id=c.message.message_id)
+
+        kb_prompt = InlineKeyboardMarkup(row_width=1)
+        b_back = InlineKeyboardButton("Назад", callback_data=f"stas:page:{chat_id}:{section}:exceptions")
+        try:
+            b_back.icon_custom_emoji_id = str(EMOJI_ROLE_SETTINGS_BACK_PREMIUM_ID)
+            b_back.style = "primary"
+        except Exception:
+            pass
+        kb_prompt.add(b_back)
+
+        prompt_text = (
+            f"<b>Удалить исключение для «{_ANTISPAM_SECTIONS[section]}»</b>\n\n"
+            "Введите исключение (полностью или частично) для удаления."
+        )
+        sent = bot.send_message(
+            msg_chat.id,
+            prompt_text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=kb_prompt,
+        )
+        _pending_msg_set("pending_antispam_exception_delete_msg", user.id, sent.message_id)
         bot.answer_callback_query(c.id)
         return
 
@@ -1052,6 +1144,23 @@ def handle_antispam_private_pending(m: types.Message) -> bool:
             )
             return True
 
+        if not _VALID_EXCEPTION_RE.match(pattern):
+            kb_err = InlineKeyboardMarkup(row_width=1)
+            kb_err.add(InlineKeyboardButton("Назад", callback_data=f"stas:page:{exc_cid}:{exc_sec}:exceptions"))
+            _replace_pending_ui(
+                m.chat.id,
+                "pending_antispam_exception_msg",
+                user_id,
+                premium_prefix(
+                    "Исключение должно быть ссылкой или упоминанием (например: "
+                    "<code>https://example.com</code>, <code>www.site.com</code>, "
+                    "<code>t.me/channel</code>, <code>@username</code>)."
+                ),
+                reply_markup=kb_err,
+                parse_mode="HTML",
+            )
+            return True
+
         sec = _antispam_get_section(exc_cid, exc_sec)
         exceptions = list(sec.get("exceptions") or [])
         if pattern.lower() not in [e.lower() for e in exceptions]:
@@ -1068,6 +1177,82 @@ def handle_antispam_private_pending(m: types.Message) -> bool:
         ok_text = premium_prefix(f"✅ Исключение <code>{_html.escape(pattern)}</code> добавлено.")
         kb_ok = InlineKeyboardMarkup()
         b_back = InlineKeyboardButton("Назад", callback_data=f"stas:page:{exc_cid}:{exc_sec}:exceptions")
+        try:
+            b_back.icon_custom_emoji_id = str(EMOJI_ROLE_SETTINGS_BACK_PREMIUM_ID)
+            b_back.style = "primary"
+        except Exception:
+            pass
+        kb_ok.add(b_back)
+        bot.send_message(m.chat.id, ok_text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=kb_ok)
+        return True
+
+    # ── exception delete pending ──
+    exc_del_cid, exc_del_sec = _as_pending_get_cid_sec("pending_antispam_exception_delete", user_id)
+    if exc_del_cid is not None and exc_del_sec is not None:
+        if ct != "text":
+            kb_err = InlineKeyboardMarkup(row_width=1)
+            kb_err.add(InlineKeyboardButton("Назад", callback_data=f"stas:page:{exc_del_cid}:{exc_del_sec}:exceptions"))
+            _replace_pending_ui(
+                m.chat.id,
+                "pending_antispam_exception_delete_msg",
+                user_id,
+                premium_prefix("Пришлите шаблон исключения для удаления текстом."),
+                reply_markup=kb_err,
+                parse_mode="HTML",
+            )
+            return True
+
+        allowed, _ = _user_can_open_settings(exc_del_cid, m.from_user)
+        if not allowed:
+            _as_pending_pop_cid_sec("pending_antispam_exception_delete", user_id)
+            _pending_msg_pop("pending_antispam_exception_delete_msg", user_id)
+            return True
+
+        pattern = (m.text or "").strip()
+        if not pattern:
+            kb_err = InlineKeyboardMarkup(row_width=1)
+            kb_err.add(InlineKeyboardButton("Назад", callback_data=f"stas:page:{exc_del_cid}:{exc_del_sec}:exceptions"))
+            _replace_pending_ui(
+                m.chat.id,
+                "pending_antispam_exception_delete_msg",
+                user_id,
+                premium_prefix("Шаблон не может быть пустым."),
+                reply_markup=kb_err,
+                parse_mode="HTML",
+            )
+            return True
+
+        sec = _antispam_get_section(exc_del_cid, exc_del_sec)
+        exceptions = list(sec.get("exceptions") or [])
+
+        # Find by exact match (case-insensitive), then partial match
+        pattern_lower = pattern.lower()
+        to_delete_idx = None
+        for i, exc in enumerate(exceptions):
+            if exc.lower() == pattern_lower:
+                to_delete_idx = i
+                break
+        if to_delete_idx is None:
+            for i, exc in enumerate(exceptions):
+                if pattern_lower in exc.lower():
+                    to_delete_idx = i
+                    break
+
+        _as_pending_pop_cid_sec("pending_antispam_exception_delete", user_id)
+        prompt_id = _pending_msg_pop("pending_antispam_exception_delete_msg", user_id)
+        _try_delete_private_prompt(m.chat.id, prompt_id)
+        _try_delete_private_prompt(m.chat.id, m.message_id)
+
+        if to_delete_idx is None:
+            ok_text = premium_prefix(f"❌ Исключение не найдено: <code>{_html.escape(pattern)}</code>.")
+        else:
+            deleted_exc = exceptions.pop(to_delete_idx)
+            sec["exceptions"] = exceptions
+            _antispam_save_section(exc_del_cid, exc_del_sec, sec)
+            ok_text = premium_prefix(f"✅ Исключение <code>{_html.escape(deleted_exc)}</code> удалено.")
+
+        kb_ok = InlineKeyboardMarkup()
+        b_back = InlineKeyboardButton("Назад", callback_data=f"stas:page:{exc_del_cid}:{exc_del_sec}:exceptions")
         try:
             b_back.icon_custom_emoji_id = str(EMOJI_ROLE_SETTINGS_BACK_PREMIUM_ID)
             b_back.style = "primary"
