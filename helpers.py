@@ -1855,11 +1855,41 @@ def parse_target_user(m: types.Message, args: list[str]) -> int | None:
     # если ничего не подошло
     return None
 
+_BOT_INFO_CACHE: dict = {}
+
+
+def _get_bot_info_cached() -> dict:
+    global _BOT_INFO_CACHE
+    if not _BOT_INFO_CACHE:
+        try:
+            me = bot.get_me()
+            name_parts = [getattr(me, "first_name", "") or "", getattr(me, "last_name", "") or ""]
+            full_name = " ".join(p for p in name_parts if p).strip() or getattr(me, "username", "") or "Бот"
+            _BOT_INFO_CACHE = {
+                "id": int(getattr(me, "id", 0) or 0),
+                "username": (getattr(me, "username", "") or "").lower(),
+                "full_name": full_name,
+            }
+        except Exception:
+            _BOT_INFO_CACHE = {}
+    return _BOT_INFO_CACHE
+
+
 def link_for_user(chat_id: int, user_id: int) -> str:
     chat_id_s = str(chat_id)
     user_id_s = str(user_id)
     chat_users = USERS.get(chat_id_s) or {}
     data = chat_users.get(user_id_s) or {}
+
+    # Fallback to global users dict
+    if not data:
+        data = (GLOBAL_USERS or {}).get(user_id_s) or {}
+
+    # Fallback to bot's own info if this is the bot
+    if not data:
+        bot_info = _get_bot_info_cached()
+        if bot_info and bot_info.get("id") == user_id:
+            data = bot_info
 
     username = (data.get("username") or "").lower()
     full_name = data.get("full_name") or data.get("first_name") or "Без имени"
