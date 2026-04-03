@@ -756,10 +756,11 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
         return
 
     # ── main page exceptions panel (expand/collapse in main keyboard) ──
+    # Callback format: stas:mainpage:<chat_id>:<subpage>
+    # The parser puts <subpage> into `section`; it is not a section name here.
     if action == "mainpage":
-        # section field is unused here; extra is the page name
-        mp_page = section  # for mainpage callback: stas:mainpage:<chat_id>:<page>
-        if mp_page == "exceptions_list":
+        subpage = section  # "exceptions" | "exceptions_list"
+        if subpage == "exceptions_list":
             # Delete current message and send a new one with the exceptions list
             exceptions = _antispam_get_exceptions(chat_id)
             if exceptions:
@@ -793,7 +794,7 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
 
         # For "exceptions" (open panel) or any other mainpage value — show main with expanded kb
         text = _render_antispam_main(chat_id)
-        kb = _build_antispam_main_keyboard(chat_id, mp_page if mp_page == "exceptions" else "main")
+        kb = _build_antispam_main_keyboard(chat_id, subpage if subpage == "exceptions" else "main")
         if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
             bot.answer_callback_query(c.id, "Не удалось открыть раздел.", show_alert=True)
             return
