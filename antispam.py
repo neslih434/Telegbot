@@ -89,6 +89,7 @@ _PUNISH_LABELS: dict[str, str] = {
 
 MAX_EXCEPTIONS = 20  # Максимум исключений на раздел
 MAX_EXCEPTION_PATTERN_LEN = 100  # Максимальная длина шаблона исключения
+MAX_EXCEPTION_DISPLAY_LEN = 30  # Максимальная длина при отображении исключения в кнопке
 
 # Exception add/delete premium emoji ids
 _EXCEPTION_ADD_EMOJI_ID = "5226945370684140473"
@@ -101,6 +102,9 @@ _SECTION_VALID_PAGES = frozenset({
     "flag_usernames", "flag_bots", "flag_user_usernames",
     "type_channels", "type_users", "type_bots", "type_groups",
 })
+
+# No-op callback actions (label/display buttons that do nothing)
+_NOOP_ACTIONS = frozenset({"statusnoop", "delnoop", "tgflnoop", "typeflnoop", "excnoop"})
 
 # Per-type labels for quoting / forwarding sections
 _FWD_QUOTE_TYPES: dict[str, str] = {
@@ -279,7 +283,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
         hint = "\n\n<i>Управление исключениями. Сообщения, содержащие любой из этих шаблонов (подстрок), не будут считаться нарушением.</i>"
     elif page.startswith("flag_"):
         flag_names = {
-            "flag_usernames": "Юзернеймы Боты",
+            "flag_usernames": "Юзернеймы",
             "flag_bots": "Боты",
             "flag_user_usernames": "Пользовательские юзернеймы",
         }
@@ -548,7 +552,7 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
         if exceptions:
             for exc in exceptions:
                 b_item = InlineKeyboardButton(
-                    f"📌 {exc[:40] + ('…' if len(exc) > 40 else '')}",
+                    f"📌 {exc[:MAX_EXCEPTION_DISPLAY_LEN] + ('…' if len(exc) > MAX_EXCEPTION_DISPLAY_LEN else '')}",
                     callback_data=f"stas:excnoop:{chat_id}:{section}",
                 )
                 kb.add(b_item)
@@ -561,7 +565,7 @@ def _build_antispam_section_keyboard(chat_id: int, section: str, page: str = "ma
         if exceptions:
             for idx, exc in enumerate(exceptions):
                 b_del = InlineKeyboardButton(
-                    f"🗑 {exc[:30] + ('…' if len(exc) > 30 else '')}",
+                    f"🗑 {exc[:MAX_EXCEPTION_DISPLAY_LEN] + ('…' if len(exc) > MAX_EXCEPTION_DISPLAY_LEN else '')}",
                     callback_data=f"stas:exc_del:{chat_id}:{section}:{idx}",
                 )
                 kb.add(b_del)
@@ -667,7 +671,7 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
     sec = _antispam_get_section(chat_id, section)
 
     # ── no-op actions (label buttons) ──
-    if action in ("statusnoop", "delnoop", "tgflnoop", "typeflnoop", "excnoop"):
+    if action in _NOOP_ACTIONS:
         bot.answer_callback_query(c.id)
         return
 
