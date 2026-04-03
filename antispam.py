@@ -1162,7 +1162,15 @@ def _antispam_apply_punishment(
     _antispam_send_punish_message(chat_id, section, ptype, action_id, target_id, actor_id, int(until_ts or 0))
 
 
-def _antispam_runtime_check(m: types.Message) -> None:
+def _should_block_by_type(types_config: dict, src_type: str) -> bool:
+    """
+    Returns True if the message should be blocked based on per-type config.
+    When no types are configured (all False), defaults to blocking everything
+    to preserve legacy behaviour where the section was a simple on/off switch.
+    """
+    any_type_enabled = any(types_config.values())
+    # Legacy fallback: if no specific type is selected, block all sources
+    return bool(types_config.get(src_type)) if any_type_enabled else True
     chat_id = int(m.chat.id)
     if not is_group_approved(chat_id):
         return
@@ -1182,14 +1190,11 @@ def _antispam_runtime_check(m: types.Message) -> None:
         # Check t.me / telegram.me URLs
         if _TG_URL_RE.search(text):
             violation = True
-        # Check @usernames of groups/channels/bots if toggle is on
-        if not violation and sec_tg.get("check_usernames"):
-            for match in _TG_USERNAME_RE.finditer(text):
-                uname = match.group(0).lower().lstrip("@")
-                # skip pure bot usernames (handled separately) and individual user usernames
-                if not uname.endswith("bot"):
-                    violation = True
-                    break
+        # Check @usernames of groups/channels if toggle is on.
+        # Note: it is not possible to distinguish group/channel from user @usernames
+        # by text content alone; this flag blocks all @mentions that are not bot names.
+        if not violation and sec_tg.get("check_usernames") and _TG_USERNAME_RE.search(text):
+            violation = True
         # Check @...bot usernames if bots toggle is on
         if not violation and sec_tg.get("check_bots"):
             for match in _TG_USERNAME_RE.finditer(text):
@@ -1230,12 +1235,7 @@ def _antispam_runtime_check(m: types.Message) -> None:
                 src_type = "users"
 
             fwd_types = sec_fwd.get("types") or {}
-            # If any type is configured, only block if the source type is enabled;
-            # if no types are configured (all False), block everything (legacy behaviour).
-            any_type_enabled = any(fwd_types.values())
-            blocked = (not any_type_enabled) or bool(fwd_types.get(src_type))
-
-            if blocked:
+            if _should_block_by_type(fwd_types, src_type):
                 exceptions = sec_fwd.get("exceptions") or []
                 fwd_text = text
                 if fwd_from:
@@ -1277,10 +1277,7 @@ def _antispam_runtime_check(m: types.Message) -> None:
                 src_type = "users"
 
             qt_types = sec_qt.get("types") or {}
-            any_type_enabled = any(qt_types.values())
-            blocked = (not any_type_enabled) or bool(qt_types.get(src_type))
-
-            if blocked:
+            if _should_block_by_type(qt_types, src_type):
                 exceptions = sec_qt.get("exceptions") or []
                 if not _antispam_matches_exceptions(text, exceptions):
                     _antispam_apply_punishment(chat_id, user, "quoting", sec_qt, msg_id)
