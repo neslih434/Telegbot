@@ -214,6 +214,47 @@ def _mod_get_chat(chat_id: int) -> dict:
             "reason": str(af_p.get("reason") or ""),
         },
     }
+    # antispam section
+    def _asp_section(key: str, extra_keys: list | None = None) -> dict:
+        raw = (settings.get("antispam") or {}).get(key) or {}
+        p = raw.get("punish") or {}
+        pt = str(p.get("type") or "warn").strip().lower()
+        if pt not in ("warn", "mute", "ban", "kick"):
+            pt = "warn"
+        pd = p.get("duration")
+        if pt in ("mute", "ban"):
+            if pd is None:
+                pd = 3600
+            else:
+                try:
+                    pd = int(pd)
+                except Exception:
+                    pd = 3600
+                if pd != 0:
+                    pd = max(MIN_PUNISH_SECONDS, min(MAX_PUNISH_SECONDS, pd))
+        else:
+            pd = None
+        exc = raw.get("exceptions")
+        if not isinstance(exc, list):
+            exc = []
+        result: dict = {
+            "enabled": bool(raw.get("enabled", False)),
+            "delete_messages": bool(raw.get("delete_messages", False)),
+            "punish": {"type": pt, "duration": pd, "reason": str(p.get("reason") or "")},
+            "exceptions": [str(e) for e in exc if e],
+        }
+        for ek in (extra_keys or []):
+            result[ek] = bool(raw.get(ek, False))
+        return result
+
+    asp = settings.get("antispam") or {}
+    settings["antispam"] = {
+        "tg_links": _asp_section("tg_links", extra_keys=["check_usernames", "check_bots"]),
+        "quoting": _asp_section("quoting"),
+        "forwarding": _asp_section("forwarding"),
+        "all_links": _asp_section("all_links"),
+    }
+
     ch["settings"] = settings
 
     if not isinstance(ch.get("active"), dict):
