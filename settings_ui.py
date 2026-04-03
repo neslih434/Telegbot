@@ -2148,6 +2148,12 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
     except Exception:
         pass
 
+    btn_antispam = InlineKeyboardButton("Анти-спам", callback_data=f"stas:open:{chat_id}")
+    try:
+        btn_antispam.icon_custom_emoji_id = "5467666648016358327"
+    except Exception:
+        pass
+
     can_manage_roles = bool(viewer_user and _user_can_edit_now(viewer_user, chat_id))
     btn_roles = InlineKeyboardButton("Права ролей", callback_data=f"st_main:{chat_id}:roles")
     try:
@@ -2159,9 +2165,10 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
     kb.add(btn_rules, btn_cleanup)
     if can_manage_roles:
         kb.add(btn_warns, btn_antiflood)
-        kb.add(btn_roles)
+        kb.add(btn_antispam, btn_roles)
     else:
         kb.add(btn_warns, btn_antiflood)
+        kb.add(btn_antispam)
 
     btn_close = InlineKeyboardButton("Закрыть", callback_data=f"st_close:{chat_id}")
     try:
@@ -4088,6 +4095,14 @@ def on_settings_private_input(m: types.Message):
                 parse_mode="HTML",
             )
             return
+
+    # Delegate to antispam module for its pending states
+    try:
+        from antispam import handle_antispam_private_pending
+        if handle_antispam_private_pending(m):
+            return
+    except ImportError:
+        pass
 
     return
 
