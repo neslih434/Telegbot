@@ -28,6 +28,7 @@ import moderation   # noqa: F401
 import pin          # noqa: F401
 import settings_ui  # noqa: F401
 import antispam     # noqa: F401
+import banned_words  # noqa: F401
 import handlers     # noqa: F401
 
 from config import bot
