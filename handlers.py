@@ -310,7 +310,12 @@ def _send_stats_message(
 
 
 def send_group_stats(chat: types.Chat, manual: bool = False):
-    _send_stats_message(chat, period="all")
+    _IMG_TASK_QUEUE.put({
+        "chat_id": chat.id,
+        "period": "all",
+        "chart_type": "users",
+        "reply_msg_id": None,
+    })
 
 
 @bot.message_handler(func=lambda m: m.chat.type in ['group', 'supergroup'] and is_exact_stat(m.text))
@@ -326,15 +331,27 @@ def cmd_group_stats_manual(m: types.Message):
             parse_mode='HTML'
         )
 
-    wait_seconds = cooldown_hit('chat', int(m.chat.id), 'group_stat', 30)
-    if wait_seconds > 0:
-        return reply_cooldown_message(m, wait_seconds, scope='chat', bucket=int(m.chat.id), action='group_stat')
-
     # не реагируем, если команда введена ответом на сообщение
     if m.reply_to_message:
         return
 
-    _send_stats_message(m.chat, period="all", reply_to_message_id=m.message_id)
+    # Антиспам: лимит per-user (60 с) и per-chat (30 с)
+    if m.from_user:
+        uid_int = int(m.from_user.id)
+        wait_u = cooldown_hit('user', uid_int, 'group_stat', 60)
+        if wait_u > 0:
+            return reply_cooldown_message(m, wait_u, scope='user', bucket=uid_int, action='group_stat')
+
+    wait_seconds = cooldown_hit('chat', int(m.chat.id), 'group_stat', 30)
+    if wait_seconds > 0:
+        return reply_cooldown_message(m, wait_seconds, scope='chat', bucket=int(m.chat.id), action='group_stat')
+
+    _IMG_TASK_QUEUE.put({
+        "chat_id": m.chat.id,
+        "period": "all",
+        "chart_type": "users",
+        "reply_msg_id": m.message_id,
+    })
 
 
 # ---- Новые команды: статистика день / неделя / месяц / вся ----
@@ -375,14 +392,26 @@ def _stats_limited_guard(m: types.Message, period: str, chart_type: str) -> None
             parse_mode='HTML',
         )
 
+    if m.reply_to_message:
+        return
+
+    # Антиспам: лимит per-user (60 с) и per-chat (30 с)
+    if m.from_user:
+        uid_int = int(m.from_user.id)
+        wait_u = cooldown_hit('user', uid_int, 'group_stat', 60)
+        if wait_u > 0:
+            return reply_cooldown_message(m, wait_u, scope='user', bucket=uid_int, action='group_stat')
+
     wait_seconds = cooldown_hit('chat', int(m.chat.id), 'group_stat', 30)
     if wait_seconds > 0:
         return reply_cooldown_message(m, wait_seconds, scope='chat', bucket=int(m.chat.id), action='group_stat')
 
-    if m.reply_to_message:
-        return
-
-    _send_stats_limited(m.chat, period=period, chart_type=chart_type, reply_to_message_id=m.message_id)
+    _IMG_TASK_QUEUE.put({
+        "chat_id": m.chat.id,
+        "period": period,
+        "chart_type": chart_type,
+        "reply_msg_id": m.message_id,
+    })
 
 
 @bot.message_handler(func=lambda m: m.chat.type in ['group', 'supergroup'] and is_exact_stat_day(m.text))
@@ -496,6 +525,51 @@ def cb_group_stats_pagination(call: types.CallbackQuery):
 
 _IMG_TASK_QUEUE: _queue.Queue = _queue.Queue()
 
+# Максимальная длина отображаемого имени (в картинке и в подписи)
+_STATS_NAME_MAXLEN = 20
+
+_S_SCALE  = 2                       # коэффициент суперсэмплинга
+_S_BG     = (22,  27,  34)          # фон
+_S_FG     = (229, 229, 229)         # основной текст
+_S_MUTED  = (139, 148, 158)         # вспомогательный текст / оси
+_S_GRID   = (48,  54,  61)          # разделители / сетка
+_S_COUNT  = (88,  166, 255)         # числа справа от баров
+_S_ROW_BG = [(30, 35, 44), (26, 31, 39)]  # чередование фона строк
+
+# Топ-3 выделяем золотом, серебром, бронзой; остальные — синим
+_S_BAR_COLORS = [
+    (255, 200,  50),   # 1-е место  — золото
+    (180, 180, 200),   # 2-е место  — серебро
+    (200, 140,  80),   # 3-е место  — бронза
+]
+_S_BAR_DEFAULT = (56, 120, 190)     # все остальные
+
+# ─── TrueType-шрифты с фолбэком ──────────────────────────────────────────────
+_FONT_BOLD_PATHS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "/app/fonts/DejaVuSans-Bold.ttf",
+]
+_FONT_REG_PATHS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/app/fonts/DejaVuSans.ttf",
+]
+
+
+def _load_font(paths: list, size: int):
+    """Load TrueType font from the first available path; fall back to default."""
+    from PIL import ImageFont
+    for fp in paths:
+        try:
+            return ImageFont.truetype(fp, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
 
 def _lookup_user_display_name(chat_id: int, user_id: int) -> str:
     """Return a display name for the user. Tries profile name cache, then local data, then TG API."""
@@ -552,96 +626,85 @@ def _render_stats_image(
     chat_title: str,
     period_label: str,
     users_map: dict[int, str],
-    max_users: int = 15,
+    max_users: int = 30,
 ) -> bytes:
-    """Render a horizontal bar-chart PNG (per-user) and return the raw bytes."""
-    from PIL import Image, ImageDraw, ImageFont  # lazy import — Pillow is optional
+    """Render a high-quality horizontal bar-chart PNG (per-user).
+
+    Draws at _S_SCALE × the target resolution then downscales with LANCZOS.
+    Each row shows: rank  Name [user_id]  ████▓▓▓░░  count
+    Final image width ≈ 1772 px.
+    """
+    from PIL import Image, ImageDraw
 
     top_n = rows[:max_users]
     if not top_n:
         raise ValueError("No rows to render")
 
-    row_h = 42
-    padding = 18
-    header_h = 76
-    name_col_w = 240   # space for rank + name
-    bar_max_w = 300    # maximum bar width
-    count_col_w = 70   # space for the number on the right
-    img_w = padding + name_col_w + bar_max_w + count_col_w + padding
-    img_h = header_h + len(top_n) * row_h + padding
+    S = _S_SCALE
 
-    img = Image.new("RGB", (img_w, img_h), color=(22, 27, 34))
+    # ── Target (final) layout in pixels ──────────────────────────────────────
+    T_PAD     = 36    # left/right padding
+    T_HEAD_H  = 96    # header height
+    T_ROW_H   = 44    # height of each user row
+    T_BOT_PAD = 18    # bottom padding
+    T_NAME_W  = 500   # rank + "Name [id]" column
+    T_BAR_MAX = 1100  # maximum bar width
+    T_CNT_W   = 100   # count column (right of bar)
+    T_IMG_W   = T_PAD * 2 + T_NAME_W + T_BAR_MAX + T_CNT_W   # 1772 px
+    T_IMG_H   = T_HEAD_H + len(top_n) * T_ROW_H + T_BOT_PAD
+
+    # ── Draw at 2× ───────────────────────────────────────────────────────────
+    W       = T_IMG_W   * S
+    H       = T_IMG_H   * S
+    pad     = T_PAD     * S
+    head_h  = T_HEAD_H  * S
+    row_h   = T_ROW_H   * S
+    name_w  = T_NAME_W  * S
+    bar_max = T_BAR_MAX * S
+    bar_x   = pad + name_w
+
+    img  = Image.new("RGB", (W, H), _S_BG)
     draw = ImageDraw.Draw(img)
 
-    # Font loading
-    _font_candidates_bold = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/app/fonts/DejaVuSans-Bold.ttf",
-    ]
-    _font_candidates_reg = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/app/fonts/DejaVuSans.ttf",
-    ]
-    font_bold = font_reg = None
-    for fp in _font_candidates_bold:
-        try:
-            font_bold = ImageFont.truetype(fp, 15)
-            break
-        except Exception:
-            pass
-    for fp in _font_candidates_reg:
-        try:
-            font_reg = ImageFont.truetype(fp, 13)
-            break
-        except Exception:
-            pass
-    if font_bold is None:
-        font_bold = ImageFont.load_default()
-    if font_reg is None:
-        font_reg = font_bold
+    fnt_title = _load_font(_FONT_BOLD_PATHS, 26 * S)
+    fnt_sub   = _load_font(_FONT_REG_PATHS,  17 * S)
+    fnt_rank  = _load_font(_FONT_BOLD_PATHS, 16 * S)
+    fnt_name  = _load_font(_FONT_REG_PATHS,  15 * S)
+    fnt_cnt   = _load_font(_FONT_BOLD_PATHS, 15 * S)
 
     # Header
-    draw.text((padding, padding), f"📊  {chat_title[:42]}", font=font_bold, fill=(229, 229, 229))
-    draw.text(
-        (padding, padding + 28),
-        f"Период: {period_label}",
-        font=font_reg,
-        fill=(139, 148, 158),
-    )
+    draw.text((pad, 12 * S), f"Статистика  {chat_title[:50]}", font=fnt_title, fill=_S_FG)
+    draw.text((pad, 52 * S), f"Период: {period_label}",        font=fnt_sub,   fill=_S_MUTED)
+    sep_y = 80 * S
+    draw.rectangle([pad, sep_y, W - pad, sep_y + S], fill=_S_GRID)
 
     max_count = top_n[0][1] if top_n else 1
-    bar_x = padding + name_col_w
-
     for i, (user_id, count) in enumerate(top_n):
-        y = header_h + i * row_h
+        y    = head_h + i * row_h
         name = users_map.get(user_id, f"ID {user_id}")
 
         # Alternating row background
-        row_bg = (30, 35, 44) if i % 2 == 0 else (26, 31, 39)
-        draw.rectangle([0, y, img_w, y + row_h], fill=row_bg)
+        draw.rectangle([0, y, W, y + row_h], fill=_S_ROW_BG[i % 2])
 
         # Bar
-        ratio = count / max_count if max_count > 0 else 0
-        bar_w = max(3, int(bar_max_w * ratio))
-        bar_color = (88, 166, 255) if i < 3 else (56, 120, 190)
-        draw.rectangle(
-            [bar_x, y + 8, bar_x + bar_w, y + row_h - 8],
-            fill=bar_color,
-        )
+        ratio   = count / max_count if max_count > 0 else 0
+        bw      = max(2 * S, int(bar_max * ratio))
+        bar_col = _S_BAR_COLORS[i] if i < len(_S_BAR_COLORS) else _S_BAR_DEFAULT
+        draw.rectangle([bar_x, y + 10 * S, bar_x + bw, y + row_h - 10 * S], fill=bar_col)
 
         # Rank
-        draw.text((padding, y + 12), f"{i + 1}.", font=font_bold, fill=(139, 148, 158))
+        draw.text((pad + 2 * S, y + 14 * S), f"{i + 1}.", font=fnt_rank, fill=_S_MUTED)
 
-        # Name (truncate to fit)
-        draw.text((padding + 28, y + 12), name[:26], font=font_reg, fill=(229, 229, 229))
+        # Name [ID]
+        id_tag = f"[{user_id}]"
+        label  = f"{name[:_STATS_NAME_MAXLEN]}  {id_tag}"
+        draw.text((pad + 40 * S, y + 14 * S), label, font=fnt_name, fill=_S_FG)
 
-        # Count
-        draw.text(
-            (bar_x + bar_max_w + 6, y + 12),
-            str(count),
-            font=font_bold,
-            fill=(88, 166, 255),
-        )
+        # Count (right of bar area)
+        draw.text((bar_x + bar_max + 6 * S, y + 14 * S), str(count), font=fnt_cnt, fill=_S_COUNT)
+
+    # Downscale to final size with LANCZOS antialiasing
+    img = img.resize((T_IMG_W, T_IMG_H), Image.LANCZOS)
 
     buf = _io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
@@ -653,235 +716,228 @@ def _render_daily_chart(
     chat_title: str,
     period_label: str,
 ) -> bytes:
-    """Render a vertical bar chart grouped by day (each bar = one day) and return PNG bytes.
+    """Render a high-quality vertical bar chart grouped by day.
 
+    Draws at _S_SCALE × the target resolution then downscales with LANCZOS.
     days_data: list of (day_ts_utc, count) ordered ASC (oldest → newest).
-    Bars are labeled 'dd.mm'; label density is auto-reduced for long series.
+    Final image width ≈ 1600 px (adaptive for short series).
     """
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     if not days_data:
         raise ValueError("No data")
 
+    S = _S_SCALE
     n = len(days_data)
-    # Adaptive bar width: wider for few bars, narrow for many.
-    # _DAILY_CHART_MAX_WIDTH is the usable chart area target; clamp bar_w to [min, max].
-    _DAILY_CHART_TARGET_WIDTH = 680
-    _DAILY_BAR_MIN_W = 5
-    _DAILY_BAR_MAX_W = 48
-    bar_w = max(_DAILY_BAR_MIN_W, min(_DAILY_BAR_MAX_W, _DAILY_CHART_TARGET_WIDTH // max(n, 1)))
-    gap = 2
-    padding_h = 24   # horizontal padding
-    header_h = 68
-    chart_h = 200    # chart area height
-    label_h = 22     # area below bars for date labels
-    bottom_pad = 10
-    _MIN_IMAGE_WIDTH = 300
 
-    img_w = max(_MIN_IMAGE_WIDTH, padding_h * 2 + n * (bar_w + gap))
-    img_h = header_h + chart_h + label_h + bottom_pad
+    # ── Target (final) layout in pixels ──────────────────────────────────────
+    T_PAD_H    = 30    # horizontal padding
+    T_HEAD_H   = 90    # header height
+    T_CHART_H  = 300   # chart area height
+    T_LABEL_H  = 28    # date-label row below bars
+    T_BOT_PAD  = 14    # bottom padding
 
-    img = Image.new("RGB", (img_w, img_h), (22, 27, 34))
+    # Adaptive bar width clamped to [8, 56] px (final)
+    _TARGET_W  = 1600
+    _BAR_MIN   = 8
+    _BAR_MAX   = 56
+    _GAP       = 3
+    bar_w_t    = max(_BAR_MIN, min(_BAR_MAX, (_TARGET_W - T_PAD_H * 2) // max(n, 1)))
+
+    T_IMG_W = max(400, T_PAD_H * 2 + n * (bar_w_t + _GAP))
+    T_IMG_H = T_HEAD_H + T_CHART_H + T_LABEL_H + T_BOT_PAD
+
+    # ── Draw at 2× ───────────────────────────────────────────────────────────
+    W          = T_IMG_W  * S
+    H          = T_IMG_H  * S
+    pad_h      = T_PAD_H  * S
+    head_h     = T_HEAD_H * S
+    chart_h    = T_CHART_H * S
+    bar_w      = bar_w_t  * S
+    gap        = _GAP     * S
+    cy_bottom  = head_h + chart_h
+
+    img  = Image.new("RGB", (W, H), _S_BG)
     draw = ImageDraw.Draw(img)
 
-    # Font loading
-    font_bold = font_small = None
-    for fp in [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/app/fonts/DejaVuSans-Bold.ttf",
-    ]:
-        try:
-            font_bold = ImageFont.truetype(fp, 14)
-            break
-        except Exception:
-            pass
-    for fp in [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/app/fonts/DejaVuSans.ttf",
-    ]:
-        try:
-            font_small = ImageFont.truetype(fp, 9)
-            break
-        except Exception:
-            pass
-    if font_bold is None:
-        font_bold = ImageFont.load_default()
-    if font_small is None:
-        font_small = font_bold
+    fnt_title = _load_font(_FONT_BOLD_PATHS, 24 * S)
+    fnt_sub   = _load_font(_FONT_REG_PATHS,  16 * S)
+    fnt_label = _load_font(_FONT_REG_PATHS,  10 * S)
+
+    # Horizontal grid lines at 25 %, 50 %, 75 %, 100 %
+    for frac in (0.25, 0.50, 0.75, 1.00):
+        gy = cy_bottom - int(chart_h * frac)
+        draw.rectangle([pad_h, gy, W - pad_h, gy + S], fill=_S_GRID)
 
     # Header
-    draw.text((padding_h, 10), f"📊  {chat_title[:40]}", font=font_bold, fill=(229, 229, 229))
-    draw.text((padding_h, 34), f"Период: {period_label}", font=font_small, fill=(139, 148, 158))
+    draw.text((pad_h, 10 * S), f"Статистика  {chat_title[:50]}", font=fnt_title, fill=_S_FG)
+    draw.text((pad_h, 48 * S), f"Период: {period_label}",        font=fnt_sub,   fill=_S_MUTED)
 
     max_count = max(c for _, c in days_data) or 1
-    chart_y_bottom = header_h + chart_h
 
-    # Determine label step so we don't draw too many overlapping labels
-    if n <= 10:
-        label_step = 1
-    elif n <= 21:
-        label_step = 3
-    elif n <= 50:
-        label_step = 7
-    else:
-        label_step = 10
+    # Label density: skip labels to avoid crowding
+    label_step = 1 if n <= 10 else 3 if n <= 21 else 7 if n <= 50 else 10
 
     for i, (day_ts, count) in enumerate(days_data):
-        x = padding_h + i * (bar_w + gap)
-        bar_h = max(2, int(chart_h * count / max_count))
+        x     = pad_h + i * (bar_w + gap)
+        bar_h = max(2 * S, int(chart_h * count / max_count))
 
-        # Slightly highlight every 7th bar (weekly cadence) for visual rhythm.
-        # Unix epoch (1970-01-01) was a Thursday; day_index % 7 == 3 corresponds to Sunday.
-        day_of_week = (day_ts // 86400) % 7  # 0=Thu, 1=Fri, 2=Sat, 3=Sun, …
-        color = (110, 180, 255) if day_of_week == 3 else (88, 166, 255)
-        draw.rectangle([x, chart_y_bottom - bar_h, x + bar_w, chart_y_bottom], fill=color)
+        # Highlight Sundays with a lighter bar shade for visual rhythm.
+        # Unix epoch (1970-01-01) was Thursday; day_index % 7 == 3 → Sunday.
+        dow   = (day_ts // 86400) % 7
+        color = (110, 180, 255) if dow == 3 else (88, 166, 255)
+        draw.rectangle([x, cy_bottom - bar_h, x + bar_w, cy_bottom], fill=color)
 
-        # Date label
         if i % label_step == 0:
             try:
                 day_str = datetime.utcfromtimestamp(day_ts).strftime("%d.%m")
             except Exception:
                 day_str = ""
-            draw.text((x, chart_y_bottom + 4), day_str, font=font_small, fill=(139, 148, 158))
+            draw.text((x, cy_bottom + 4 * S), day_str, font=fnt_label, fill=_S_MUTED)
+
+    # Downscale to final size with LANCZOS antialiasing
+    img = img.resize((T_IMG_W, T_IMG_H), Image.LANCZOS)
 
     buf = _io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 
+_TG_CAPTION_LIMIT = 1024   # Telegram caption character limit
+
+
+def _build_stats_caption(
+    chat_title: str,
+    period_label: str,
+    rows: list[tuple[int, int]],
+    users_map: dict[int, str],
+    max_entries: int = 30,
+) -> str:
+    """Build a compact photo caption: title + top-N user list.
+
+    Stays within Telegram's 1024-character caption limit by truncating the
+    list if necessary (the chart image itself always shows the full top-N).
+    """
+    header = f"Статистика | {chat_title} | {period_label}\n\n"
+    budget = _TG_CAPTION_LIMIT - len(header)
+    lines: list[str] = []
+    for i, (user_id, count) in enumerate(rows[:max_entries]):
+        name = users_map.get(user_id, f"ID {user_id}")
+        line = f"{i + 1}. {name[:_STATS_NAME_MAXLEN]} [{user_id}] — {count}\n"
+        if budget - len(line) < 0:
+            break
+        lines.append(line)
+        budget -= len(line)
+    return header + "".join(lines)
+
+
 def _process_image_task(task: dict) -> None:
+    """Generate the appropriate chart, build caption, and send a single photo."""
     chat_id: int = task["chat_id"]
-    period: str = task.get("period", "all")
+    period: str  = task.get("period", "all")
     chart_type: str = task.get("chart_type", "users")
     reply_msg_id: int | None = task.get("reply_msg_id")
     period_label = PERIOD_LABELS.get(period, period)
 
-    # Get chat title
     try:
-        chat_obj = tg_get_chat(chat_id)
+        chat_obj  = tg_get_chat(chat_id)
         chat_title = getattr(chat_obj, "title", None) or str(chat_id)
     except Exception:
         chat_title = str(chat_id)
 
+    def _send_error(text: str) -> None:
+        try:
+            bot.send_message(chat_id, text, reply_to_message_id=reply_msg_id)
+        except Exception:
+            pass
+
     # ── Daily chart (weekly 7d or all-time 100d) ─────────────────────────────
     if chart_type in ("daily_7", "daily_100"):
-        max_days = 7 if chart_type == "daily_7" else 100
-        since_ts = _get_period_since("7d") if chart_type == "daily_7" else 0
+        max_days  = 7 if chart_type == "daily_7" else 100
+        since_ts  = _get_period_since("7d") if chart_type == "daily_7" else 0
         if since_ts == 0:
-            # all-time: use last 100 days window
             since_ts = int(time.time()) - 100 * 86400
         days_data = get_stats_by_day(chat_id, since_ts, max_days=max_days)
 
         if not days_data:
-            try:
-                bot.send_message(
-                    chat_id,
-                    "📊 Нет данных для отображения за выбранный период.",
-                    reply_to_message_id=reply_msg_id,
-                )
-            except Exception:
-                pass
+            _send_error("📊 Нет данных для отображения за выбранный период.")
             return
 
         try:
             img_bytes = _render_daily_chart(days_data, chat_title, period_label)
         except ImportError:
-            try:
-                bot.send_message(
-                    chat_id,
-                    "❌ Генерация изображений недоступна (Pillow не установлен).",
-                    reply_to_message_id=reply_msg_id,
-                )
-            except Exception:
-                pass
+            _send_error("❌ Генерация изображений недоступна (Pillow не установлен).")
             return
-        except Exception as e:
-            print(f"[IMAGE RENDER daily] Error: {e}")
-            try:
-                bot.send_message(
-                    chat_id,
-                    "❌ Ошибка при генерации изображения статистики.",
-                    reply_to_message_id=reply_msg_id,
-                )
-            except Exception:
-                pass
+        except Exception as exc:
+            print(f"[IMAGE RENDER daily] {exc}")
+            _send_error("❌ Ошибка при генерации изображения статистики.")
             return
+
+        # Build top-users caption for the same period
+        if period == "all":
+            chat_stats = GROUP_STATS.get(str(chat_id), {})
+            top_rows: list[tuple[int, int]] = sorted(
+                [(int(uid), d.get("count", 0)) for uid, d in chat_stats.items()],
+                key=lambda x: x[1],
+                reverse=True,
+            )[:30]
+        else:
+            raw = get_stats_for_period(chat_id, since_ts)
+            top_rows = [(r[0], r[1]) for r in raw][:30]
+        users_map = {uid: _lookup_user_display_name(chat_id, uid) for uid, _ in top_rows}
+        caption = _build_stats_caption(chat_title, period_label, top_rows, users_map)
 
         try:
             bot.send_photo(
                 chat_id,
                 _io.BytesIO(img_bytes),
-                caption=f"📊 Статистика · {period_label}",
+                caption=caption,
                 reply_to_message_id=reply_msg_id,
             )
-        except Exception as e:
-            print(f"[IMAGE SEND daily] Error: {e}")
+        except Exception as exc:
+            print(f"[IMAGE SEND daily] {exc}")
         return
 
     # ── User bar chart ────────────────────────────────────────────────────────
-    max_users = 30 if chart_type == "users" else 15
-
     if period == "all":
         chat_stats = GROUP_STATS.get(str(chat_id), {})
         rows: list[tuple[int, int]] = sorted(
             [(int(uid), d.get("count", 0)) for uid, d in chat_stats.items()],
             key=lambda x: x[1],
             reverse=True,
-        )[:max_users]
+        )[:30]
     else:
         since_ts = _get_period_since(period)
         raw = get_stats_for_period(chat_id, since_ts)
-        rows = [(r[0], r[1]) for r in raw][:max_users]
+        rows = [(r[0], r[1]) for r in raw][:30]
 
     if not rows:
-        try:
-            bot.send_message(
-                chat_id,
-                "📊 Нет данных для отображения за выбранный период.",
-                reply_to_message_id=reply_msg_id,
-            )
-        except Exception:
-            pass
+        _send_error("📊 Нет данных для отображения за выбранный период.")
         return
 
-    # Build users_map
-    users_map: dict[int, str] = {uid: _lookup_user_display_name(chat_id, uid) for uid, _ in rows}
+    users_map = {uid: _lookup_user_display_name(chat_id, uid) for uid, _ in rows}
 
-    # Render
     try:
-        img_bytes = _render_stats_image(rows, chat_title, period_label, users_map, max_users=max_users)
+        img_bytes = _render_stats_image(rows, chat_title, period_label, users_map)
     except ImportError:
-        try:
-            bot.send_message(
-                chat_id,
-                "❌ Генерация изображений недоступна (Pillow не установлен).",
-                reply_to_message_id=reply_msg_id,
-            )
-        except Exception:
-            pass
+        _send_error("❌ Генерация изображений недоступна (Pillow не установлен).")
         return
-    except Exception as e:
-        print(f"[IMAGE RENDER] Error: {e}")
-        try:
-            bot.send_message(
-                chat_id,
-                "❌ Ошибка при генерации изображения статистики.",
-                reply_to_message_id=reply_msg_id,
-            )
-        except Exception:
-            pass
+    except Exception as exc:
+        print(f"[IMAGE RENDER] {exc}")
+        _send_error("❌ Ошибка при генерации изображения статистики.")
         return
 
-    # Send
+    caption = _build_stats_caption(chat_title, period_label, rows, users_map)
+
     try:
         bot.send_photo(
             chat_id,
             _io.BytesIO(img_bytes),
-            caption=f"📊 Статистика · {period_label}",
+            caption=caption,
             reply_to_message_id=reply_msg_id,
         )
-    except Exception as e:
-        print(f"[IMAGE SEND] Error: {e}")
+    except Exception as exc:
+        print(f"[IMAGE SEND] {exc}")
 
 
 def _image_worker() -> None:
