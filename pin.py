@@ -496,6 +496,8 @@ def _build_pin_interface_keyboard(chat_id: int, iface_msg_id: int, replied_msg_i
             callback_data=f"pin_notify:{chat_id}:{iface_msg_id}:{replied_msg_id}",
             icon_custom_emoji_id=str(EMOJI_PIN_NOTIFY_ID)
         ),
+    )
+    kb.row(
         InlineKeyboardButton(
             "Без уведомления",
             callback_data=f"pin_silent:{chat_id}:{iface_msg_id}:{replied_msg_id}",
