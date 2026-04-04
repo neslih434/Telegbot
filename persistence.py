@@ -34,6 +34,12 @@ from config import (
 _DB_LOCK = threading.RLock()
 _DB_CONN: sqlite3.Connection | None = None
 
+# ── Message-event buffer (per-message stats for time periods) ────────────────
+_MSG_EVENTS_BUFFER: list[tuple[int, int, int, Any]] = []
+_MSG_EVENTS_BUFFER_LOCK = threading.Lock()
+_STATS_CLEANUP_LAST_TS: float = 0.0
+_STATS_CLEANUP_INTERVAL: float = 86400.0  # run cleanup at most once per day
+
 
 def _stats_increment(key: str, delta: int = 1) -> None:
     STATS[key] = int(STATS.get(key) or 0) + delta
@@ -55,6 +61,37 @@ def _db_connect() -> sqlite3.Connection:
                 store_key TEXT PRIMARY KEY,
                 payload_json TEXT NOT NULL,
                 updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        # ── Per-message stats tables (time-period queries) ──────────────────
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS msg_events (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                ts      INTEGER NOT NULL,
+                msg_id  INTEGER
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_msg_events_chat_ts "
+            "ON msg_events(chat_id, ts)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_msg_events_user "
+            "ON msg_events(chat_id, user_id, ts)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS msg_alltime (
+                chat_id     INTEGER NOT NULL,
+                user_id     INTEGER NOT NULL,
+                count       INTEGER NOT NULL DEFAULT 0,
+                last_msg_id INTEGER,
+                PRIMARY KEY (chat_id, user_id)
             )
             """
         )
@@ -279,11 +316,118 @@ def _flush_pending_saves(force: bool = False):
         save_json_file(path, data)
 
 
+# ─────────────────────── Message-event stats helpers ─────────────────────────
+
+def buffer_msg_event(
+    chat_id: int, user_id: int, ts: int, msg_id: int | None = None
+) -> None:
+    """Buffer one message event for batch SQLite write. O(1), no I/O."""
+    with _MSG_EVENTS_BUFFER_LOCK:
+        _MSG_EVENTS_BUFFER.append((int(chat_id), int(user_id), int(ts), msg_id))
+
+
+def _flush_msg_events() -> None:
+    """Drain the in-memory event buffer and persist to SQLite in one batch."""
+    with _MSG_EVENTS_BUFFER_LOCK:
+        if not _MSG_EVENTS_BUFFER:
+            return
+        batch = list(_MSG_EVENTS_BUFFER)
+        del _MSG_EVENTS_BUFFER[:]
+    try:
+        from collections import Counter
+        counts: dict[tuple[int, int], int] = Counter(
+            (r[0], r[1]) for r in batch
+        )
+        last_msgs: dict[tuple[int, int], Any] = {}
+        for r in batch:
+            if r[3] is not None:
+                last_msgs[(r[0], r[1])] = r[3]
+        conn = _db_connect()
+        with _DB_LOCK:
+            conn.executemany(
+                "INSERT INTO msg_events(chat_id, user_id, ts, msg_id) VALUES (?, ?, ?, ?)",
+                [(r[0], r[1], r[2], r[3]) for r in batch],
+            )
+            for (cid, uid), delta in counts.items():
+                last_mid = last_msgs.get((cid, uid))
+                conn.execute(
+                    """
+                    INSERT INTO msg_alltime(chat_id, user_id, count, last_msg_id)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                        count = count + excluded.count,
+                        last_msg_id = COALESCE(excluded.last_msg_id, last_msg_id)
+                    """,
+                    (cid, uid, delta, last_mid),
+                )
+            conn.commit()
+    except Exception as e:
+        print(f"[MSG EVENTS FLUSH] Error: {e}")
+
+
+def _cleanup_old_msg_events() -> None:
+    """Delete msg_events older than 31 days. Self-throttled to once per day."""
+    global _STATS_CLEANUP_LAST_TS
+    now = time.monotonic()
+    if now - _STATS_CLEANUP_LAST_TS < _STATS_CLEANUP_INTERVAL:
+        return
+    _STATS_CLEANUP_LAST_TS = now
+    try:
+        cutoff = int(time.time()) - 31 * 86400
+        conn = _db_connect()
+        with _DB_LOCK:
+            conn.execute("DELETE FROM msg_events WHERE ts < ?", (cutoff,))
+            conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            conn.commit()
+    except Exception as e:
+        print(f"[MSG EVENTS CLEANUP] Error: {e}")
+
+
+def get_stats_for_period(
+    chat_id: int, since_ts: int
+) -> list[tuple[int, int, Any]]:
+    """
+    Return (user_id, count, last_msg_id) sorted by count DESC.
+    since_ts == 0 → reads from msg_alltime (all-time, O(log N)).
+    since_ts  > 0 → aggregates from msg_events for the given window.
+    """
+    try:
+        conn = _db_connect()
+        with _DB_LOCK:
+            if since_ts == 0:
+                rows = conn.execute(
+                    """
+                    SELECT user_id, count, last_msg_id
+                    FROM msg_alltime
+                    WHERE chat_id = ?
+                    ORDER BY count DESC
+                    """,
+                    (int(chat_id),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT user_id, COUNT(*) AS cnt, MAX(msg_id) AS last_msg_id
+                    FROM msg_events
+                    WHERE chat_id = ? AND ts >= ?
+                    GROUP BY user_id
+                    ORDER BY cnt DESC
+                    """,
+                    (int(chat_id), int(since_ts)),
+                ).fetchall()
+        return [(int(r[0]), int(r[1]), r[2]) for r in rows]
+    except Exception as e:
+        print(f"[GET STATS PERIOD] Error: {e}")
+        return []
+
+
 def _periodic_flush_worker():
     sleep_seconds = max(1, DB_FLUSH_INTERVAL_SECONDS)
     while True:
         time.sleep(sleep_seconds)
         _flush_pending_saves(force=False)
+        _flush_msg_events()
+        _cleanup_old_msg_events()
 
 
 def force_flush_all_saves():
@@ -296,6 +440,7 @@ def close_sqlite_connection():
 
 def _shutdown_persistence():
     force_flush_all_saves()
+    _flush_msg_events()
     close_sqlite_connection()
 
 

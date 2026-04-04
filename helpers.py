@@ -94,6 +94,8 @@ from persistence import (
     get_tg_cache_stats,
     GLOBAL_LAST_SEEN_UPDATE_SECONDS,
     tg_get_user_by_id_cached,
+    # message-event stats
+    buffer_msg_event,
 )
 from config import get_user_id_by_username_mtproto
 
@@ -200,7 +202,9 @@ def _kb_to_dict(keyboard):
     return keyboard
 
 
-def raw_send_with_inline_keyboard(chat_id: int, text: str, keyboard):
+def raw_send_with_inline_keyboard(
+    chat_id: int, text: str, keyboard, reply_to_message_id: int | None = None
+):
     kb_dict = _kb_to_dict(keyboard)
     payload = {
         "chat_id": chat_id,
@@ -210,6 +214,8 @@ def raw_send_with_inline_keyboard(chat_id: int, text: str, keyboard):
     }
     if kb_dict is not None:
         payload["reply_markup"] = json.dumps(kb_dict, ensure_ascii=False)
+    if reply_to_message_id:
+        payload["reply_to_message_id"] = reply_to_message_id
     return raw_request("sendMessage", payload)
 
 
@@ -404,6 +410,9 @@ def update_group_stats(message: types.Message):
     user_stats["last_msg_id"] = message.message_id
 
     save_group_stats()
+
+    # Buffer event for time-period statistics (batch-flushed every few seconds)
+    buffer_msg_event(chat.id, user.id, int(message.date), message.message_id)
 
 
 # ==== УПРАВЛЕНИЕ НЕПОДТВЕРЖДЕННЫМИ ГРУППАМИ ====

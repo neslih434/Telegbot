@@ -4,3 +4,4 @@ telethon
 tgentity
 requests
 python-dotenv
+Pillow
