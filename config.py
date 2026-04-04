@@ -93,6 +93,7 @@ _tg_client_status: dict[str, Any] = {
     "last_error": None,
     "last_use": 0,
 }
+_MTPROTO_ERROR_MAX_LEN: int = 120  # max chars to store from an MTProto error message
 
 
 async def _ensure_tg_client_connected() -> None:
@@ -124,7 +125,7 @@ async def get_user_id_by_username_mtproto(username: str) -> int | None:
     except Exception as e:
         print(f"[MTProto] Ошибка при resolve @{username}: {e}")
         _tg_client_status["connected"] = False
-        _tg_client_status["last_error"] = str(e)[:120]
+        _tg_client_status["last_error"] = str(e)[:_MTPROTO_ERROR_MAX_LEN]
         # Сброс соединения для чистого реконнекта при следующем вызове
         try:
             await tg_client.disconnect()

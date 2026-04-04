@@ -428,6 +428,10 @@ def get_stats_by_day(
     """
     Return [(day_ts, count)] grouped by UTC day, ordered ASC, limited to max_days.
     day_ts is the Unix timestamp of midnight UTC for that day.
+
+    Note: the expression ``(ts / 86400) * 86400`` uses SQLite integer division which
+    truncates toward zero — identical to floor division for positive ts values (all
+    real bot events have ts > 0).
     """
     try:
         conn = _db_connect()

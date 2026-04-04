@@ -664,16 +664,21 @@ def _render_daily_chart(
         raise ValueError("No data")
 
     n = len(days_data)
-    # Adaptive bar width: wider for few bars, narrow for many
-    bar_w = max(5, min(48, 680 // max(n, 1)))
+    # Adaptive bar width: wider for few bars, narrow for many.
+    # _DAILY_CHART_MAX_WIDTH is the usable chart area target; clamp bar_w to [min, max].
+    _DAILY_CHART_TARGET_WIDTH = 680
+    _DAILY_BAR_MIN_W = 5
+    _DAILY_BAR_MAX_W = 48
+    bar_w = max(_DAILY_BAR_MIN_W, min(_DAILY_BAR_MAX_W, _DAILY_CHART_TARGET_WIDTH // max(n, 1)))
     gap = 2
     padding_h = 24   # horizontal padding
     header_h = 68
     chart_h = 200    # chart area height
     label_h = 22     # area below bars for date labels
     bottom_pad = 10
+    _MIN_IMAGE_WIDTH = 300
 
-    img_w = max(300, padding_h * 2 + n * (bar_w + gap))
+    img_w = max(_MIN_IMAGE_WIDTH, padding_h * 2 + n * (bar_w + gap))
     img_h = header_h + chart_h + label_h + bottom_pad
 
     img = Image.new("RGB", (img_w, img_h), (22, 27, 34))
@@ -725,8 +730,9 @@ def _render_daily_chart(
         x = padding_h + i * (bar_w + gap)
         bar_h = max(2, int(chart_h * count / max_count))
 
-        # Highlight Sundays (day_ts / 86400 % 7 == 3 for Sun in UTC)
-        day_of_week = (day_ts // 86400) % 7
+        # Slightly highlight every 7th bar (weekly cadence) for visual rhythm.
+        # Unix epoch (1970-01-01) was a Thursday; day_index % 7 == 3 corresponds to Sunday.
+        day_of_week = (day_ts // 86400) % 7  # 0=Thu, 1=Fri, 2=Sat, 3=Sun, …
         color = (110, 180, 255) if day_of_week == 3 else (88, 166, 255)
         draw.rectangle([x, chart_y_bottom - bar_h, x + bar_w, chart_y_bottom], fill=color)
 
