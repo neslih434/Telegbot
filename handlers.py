@@ -216,10 +216,10 @@ def build_group_stats_pages(chat: types.Chat, period: str = "all", max_items: in
     if max_items is not None:
         rows_data = rows_data[:max_items]
 
+    chat_title_esc = _html.escape(getattr(chat, "title", None) or str(chat.id))
+
     items: list[str] = []
     for user_id, count, last_msg_id in rows_data:
-        link = build_message_link(chat, last_msg_id) if last_msg_id else ""
-
         # Use profile name cache to avoid repeated TG API calls
         display_name = _get_cached_display_name(chat.id, user_id)
         if display_name is None:
@@ -234,10 +234,8 @@ def build_group_stats_pages(chat: types.Chat, period: str = "all", max_items: in
 
         base = (
             f'<tg-emoji emoji-id="{PREMIUM_USER_EMOJI_ID}">👤</tg-emoji> '
-            f'{name_html} — <b>{count}</b>'
+            f'{name_html} [<code>{user_id}</code>] — <b>{count}</b>'
         )
-        if link:
-            base += f' ( <a href="{link}">последнее сообщение</a> )'
         items.append(base)
 
     page_size = GROUP_STATS_PAGE_SIZE
@@ -250,7 +248,7 @@ def build_group_stats_pages(chat: types.Chat, period: str = "all", max_items: in
 
         header = (
             f'<tg-emoji emoji-id="{PREMIUM_STATS_EMOJI_ID}">📊</tg-emoji>'
-            f' <b>Статистика</b> · {_html.escape(period_label)}:\n\n'
+            f' <b>Статистика за {_html.escape(period_label)} для чата "{chat_title_esc}"</b>\n\n'
         )
         body = "\n".join(chunk)
         page_text = (header + body).strip()
@@ -528,22 +526,6 @@ _IMG_TASK_QUEUE: _queue.Queue = _queue.Queue()
 # Максимальная длина отображаемого имени (в картинке и в подписи)
 _STATS_NAME_MAXLEN = 20
 
-_S_SCALE  = 2                       # коэффициент суперсэмплинга
-_S_BG     = (22,  27,  34)          # фон
-_S_FG     = (229, 229, 229)         # основной текст
-_S_MUTED  = (139, 148, 158)         # вспомогательный текст / оси
-_S_GRID   = (48,  54,  61)          # разделители / сетка
-_S_COUNT  = (88,  166, 255)         # числа справа от баров
-_S_ROW_BG = [(30, 35, 44), (26, 31, 39)]  # чередование фона строк
-
-# Топ-3 выделяем золотом, серебром, бронзой; остальные — синим
-_S_BAR_COLORS = [
-    (255, 200,  50),   # 1-е место  — золото
-    (180, 180, 200),   # 2-е место  — серебро
-    (200, 140,  80),   # 3-е место  — бронза
-]
-_S_BAR_DEFAULT = (56, 120, 190)     # все остальные
-
 # ─── TrueType-шрифты с фолбэком ──────────────────────────────────────────────
 _FONT_BOLD_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -628,11 +610,10 @@ def _render_stats_image(
     users_map: dict[int, str],
     max_users: int = 30,
 ) -> bytes:
-    """Render a high-quality horizontal bar-chart PNG (per-user).
+    """Render a fixed 640×1024 horizontal bar-chart PNG (per-user).
 
-    Draws at _S_SCALE × the target resolution then downscales with LANCZOS.
-    Each row shows: rank  Name [user_id]  ████▓▓▓░░  count
-    Final image width ≈ 1772 px.
+    Draws at 2× then downscales with LANCZOS.
+    Layout: pill labels on the left, horizontal bars to the right, count values at end.
     """
     from PIL import Image, ImageDraw
 
@@ -640,74 +621,174 @@ def _render_stats_image(
     if not top_n:
         raise ValueError("No rows to render")
 
-    S = _S_SCALE
+    # ── Palette ───────────────────────────────────────────────────────────────
+    C_BG       = (0x30, 0x3f, 0x54, 255)
+    C_STRIPE_A = (0x34, 0x46, 0x5c)
+    C_STRIPE_B = (0x38, 0x4b, 0x63)
+    C_BAR      = (0xa9, 0xde, 0xe6)
+    C_BAR_EDGE = (0xd8, 0xf4, 0xf7)
+    C_GRID     = (0x50, 0x64, 0x7b, 255)
+    C_MUTED    = (0xb8, 0xc9, 0xd6, 255)
+    C_VALUE    = (0xdf, 0xf8, 0xfb, 255)
+    C_TITLE    = (0xe5, 0xed, 0xf5, 255)
+    C_PILL_FG  = (0x1f, 0x29, 0x33, 255)
 
-    # ── Target (final) layout in pixels ──────────────────────────────────────
-    T_PAD     = 36    # left/right padding
-    T_HEAD_H  = 96    # header height
-    T_ROW_H   = 44    # height of each user row
-    T_BOT_PAD = 18    # bottom padding
-    T_NAME_W  = 500   # rank + "Name [id]" column
-    T_BAR_MAX = 1100  # maximum bar width
-    T_CNT_W   = 100   # count column (right of bar)
-    T_IMG_W   = T_PAD * 2 + T_NAME_W + T_BAR_MAX + T_CNT_W   # 1772 px
-    T_IMG_H   = T_HEAD_H + len(top_n) * T_ROW_H + T_BOT_PAD
+    # ── Fixed output size & supersampling ─────────────────────────────────────
+    W_OUT, H_OUT = 640, 1024
+    S = 2
+
+    # ── Layout (final-pixel coordinates) ─────────────────────────────────────
+    N = len(top_n)
+    margin_l = 178  # pill label area
+    margin_r = 58   # count text on right
+    margin_t = 100  # header
+    margin_b = 52   # scale labels at bottom
+
+    plot_x0 = margin_l
+    plot_y0 = margin_t
+    plot_x1 = W_OUT - margin_r
+    plot_y1 = H_OUT - margin_b
+    plot_w  = plot_x1 - plot_x0
+    plot_h  = plot_y1 - plot_y0
+
+    # Adaptive row gap and bar height
+    if N <= 8:
+        row_gap = 10
+    elif N <= 15:
+        row_gap = 7
+    elif N <= 20:
+        row_gap = 5
+    else:
+        row_gap = 3
+
+    bar_h = max(18, int((plot_h - row_gap * (N - 1)) / N))
+
+    # Pill dimensions (left label)
+    pill_w = 164
+    pill_x = 6
+    pill_h = max(14, bar_h - 4)
 
     # ── Draw at 2× ───────────────────────────────────────────────────────────
-    W       = T_IMG_W   * S
-    H       = T_IMG_H   * S
-    pad     = T_PAD     * S
-    head_h  = T_HEAD_H  * S
-    row_h   = T_ROW_H   * S
-    name_w  = T_NAME_W  * S
-    bar_max = T_BAR_MAX * S
-    bar_x   = pad + name_w
+    W, H = W_OUT * S, H_OUT * S
 
-    img  = Image.new("RGB", (W, H), _S_BG)
-    draw = ImageDraw.Draw(img)
+    def sc(v: float) -> int:
+        return int(v * S)
 
-    fnt_title = _load_font(_FONT_BOLD_PATHS, 26 * S)
-    fnt_sub   = _load_font(_FONT_REG_PATHS,  17 * S)
-    fnt_rank  = _load_font(_FONT_BOLD_PATHS, 16 * S)
-    fnt_name  = _load_font(_FONT_REG_PATHS,  15 * S)
-    fnt_cnt   = _load_font(_FONT_BOLD_PATHS, 15 * S)
+    img  = Image.new('RGBA', (W, H), C_BG)
+    draw = ImageDraw.Draw(img, 'RGBA')
 
-    # Header
-    draw.text((pad, 12 * S), f"Статистика  {chat_title[:50]}", font=fnt_title, fill=_S_FG)
-    draw.text((pad, 52 * S), f"Период: {period_label}",        font=fnt_sub,   fill=_S_MUTED)
-    sep_y = 80 * S
-    draw.rectangle([pad, sep_y, W - pad, sep_y + S], fill=_S_GRID)
+    label_font_pt = max(8, min(12, bar_h - 7))
+    fnt_title = _load_font(_FONT_BOLD_PATHS, sc(18))
+    fnt_sub   = _load_font(_FONT_REG_PATHS,  sc(11))
+    fnt_label = _load_font(_FONT_REG_PATHS,  sc(label_font_pt))
+    fnt_value = _load_font(_FONT_BOLD_PATHS, sc(label_font_pt))
+    fnt_scale = _load_font(_FONT_REG_PATHS,  sc(9))
 
-    max_count = top_n[0][1] if top_n else 1
+    # Title + subtitle (centered horizontally)
+    for txt, yy, font, fill in [
+        (f"Статистика за {period_label}", 14, fnt_title, C_TITLE),
+        (f'для чата "{chat_title[:38]}"', 40, fnt_sub,   C_MUTED),
+    ]:
+        bbox = draw.textbbox((0, 0), txt, font=font)
+        tw   = bbox[2] - bbox[0]
+        draw.text((sc(W_OUT / 2) - tw // 2, sc(yy)), txt, fill=fill, font=font)
+
+    # Scale (vertical grid lines)
+    max_val   = top_n[0][1] if top_n else 1
+    max_scale = max(max_val, 1)
+    # Pick a nice step so we get ~4-6 gridlines
+    for step in (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000,
+                 10000, 20000, 50000, 100000):
+        if max_scale / step <= 6:
+            scale_step = step
+            break
+    else:
+        scale_step = max(1, max_scale // 5)
+
+    steps = list(range(0, max_scale + 1, scale_step))
+    if max_scale not in steps:
+        steps.append(max_scale)
+
+    for s_val in steps:
+        x_f = plot_x0 + (s_val / max_scale) * plot_w
+        draw.line(
+            [(sc(x_f), sc(plot_y0 - 6)), (sc(x_f), sc(plot_y1))],
+            fill=C_GRID, width=max(1, S),
+        )
+        lbl = str(s_val)
+        bbox = draw.textbbox((0, 0), lbl, font=fnt_scale)
+        tw   = bbox[2] - bbox[0]
+        draw.text((sc(x_f) - tw // 2, sc(plot_y1 + 4)), lbl, fill=C_MUTED, font=fnt_scale)
+
+    # Alternating row backgrounds
+    for i in range(N):
+        y = plot_y0 + i * (bar_h + row_gap)
+        fill = C_STRIPE_A if i % 2 == 0 else C_STRIPE_B
+        draw.rounded_rectangle(
+            (sc(plot_x0), sc(y), sc(plot_x1), sc(y + bar_h)),
+            radius=sc(6), fill=fill + (255,),
+        )
+
+    # Bars + pills + counts
     for i, (user_id, count) in enumerate(top_n):
-        y    = head_h + i * row_h
-        name = users_map.get(user_id, f"ID {user_id}")
+        y   = plot_y0 + i * (bar_h + row_gap)
+        y_m = y + bar_h / 2
 
-        # Alternating row background
-        draw.rectangle([0, y, W, y + row_h], fill=_S_ROW_BG[i % 2])
+        # ── Pill (semi-transparent label on left) ─────────────────────────
+        pill_y       = y_m - pill_h / 2
+        pill_fill    = C_BAR + (70,)
+        pill_outline = C_BAR + (150,)
+        draw.rounded_rectangle(
+            (sc(pill_x), sc(pill_y), sc(pill_x + pill_w), sc(pill_y + pill_h)),
+            radius=sc(min(pill_h // 2, 14)),
+            fill=pill_fill, outline=pill_outline, width=max(1, S),
+        )
 
-        # Bar
-        ratio   = count / max_count if max_count > 0 else 0
-        bw      = max(2 * S, int(bar_max * ratio))
-        bar_col = _S_BAR_COLORS[i] if i < len(_S_BAR_COLORS) else _S_BAR_DEFAULT
-        draw.rectangle([bar_x, y + 10 * S, bar_x + bw, y + row_h - 10 * S], fill=bar_col)
+        # Pill text: truncate name to fit, always show [ID]
+        name    = users_map.get(user_id, f"ID {user_id}")
+        id_tag  = f"[{user_id}]"
+        max_pill_tw = sc(pill_w - 8)
 
-        # Rank
-        draw.text((pad + 2 * S, y + 14 * S), f"{i + 1}.", font=fnt_rank, fill=_S_MUTED)
+        # Try "Name [ID]", shrink name until it fits or only show [ID]
+        trunc = name[:_STATS_NAME_MAXLEN]
+        while True:
+            label = f"{trunc} {id_tag}" if trunc else id_tag
+            bbox  = draw.textbbox((0, 0), label, font=fnt_label)
+            if (bbox[2] - bbox[0]) <= max_pill_tw or len(trunc) <= 0:
+                break
+            trunc = trunc[:-1] + "…"
 
-        # Name [ID]
-        id_tag = f"[{user_id}]"
-        label  = f"{name[:_STATS_NAME_MAXLEN]}  {id_tag}"
-        draw.text((pad + 40 * S, y + 14 * S), label, font=fnt_name, fill=_S_FG)
+        bbox = draw.textbbox((0, 0), label, font=fnt_label)
+        tw_l = bbox[2] - bbox[0]
+        th_l = bbox[3] - bbox[1]
+        draw.text(
+            (sc(pill_x) + (sc(pill_w) - tw_l) // 2,
+             sc(pill_y) + (sc(pill_h) - th_l) // 2 - S),
+            label, fill=C_PILL_FG, font=fnt_label,
+        )
 
-        # Count (right of bar area)
-        draw.text((bar_x + bar_max + 6 * S, y + 14 * S), str(count), font=fnt_cnt, fill=_S_COUNT)
+        # ── Horizontal bar ─────────────────────────────────────────────────
+        bar_w = max(sc(2), int(sc(plot_w) * count / max_scale))
+        draw.rounded_rectangle(
+            (sc(plot_x0), sc(y), sc(plot_x0) + bar_w, sc(y + bar_h)),
+            radius=sc(6),
+            fill=C_BAR + (255,), outline=C_BAR_EDGE + (255,), width=max(1, S),
+        )
 
-    # Downscale to final size with LANCZOS antialiasing
-    img = img.resize((T_IMG_W, T_IMG_H), Image.LANCZOS)
+        # ── Count value (right of bar, clamped within plot) ────────────────
+        val_txt = str(count)
+        bbox_v  = draw.textbbox((0, 0), val_txt, font=fnt_value)
+        th_v    = bbox_v[3] - bbox_v[1]
+        val_x   = min(sc(plot_x0) + bar_w + sc(5), sc(plot_x1) - (bbox_v[2] - bbox_v[0]) - S)
+        draw.text(
+            (val_x, sc(y_m) - th_v // 2 - S),
+            val_txt, fill=C_VALUE, font=fnt_value,
+        )
 
+    # Downscale to final size
+    img_out = img.convert('RGB').resize((W_OUT, H_OUT), Image.LANCZOS)
     buf = _io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
+    img_out.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 
@@ -716,90 +797,99 @@ def _render_daily_chart(
     chat_title: str,
     period_label: str,
 ) -> bytes:
-    """Render a high-quality vertical bar chart grouped by day.
+    """Render a fixed 640×1024 vertical bar chart grouped by day.
 
-    Draws at _S_SCALE × the target resolution then downscales with LANCZOS.
+    Draws at 2× then downscales with LANCZOS.
     days_data: list of (day_ts_utc, count) ordered ASC (oldest → newest).
-    Final image width ≈ 1600 px (adaptive for short series).
     """
     from PIL import Image, ImageDraw
 
     if not days_data:
         raise ValueError("No data")
 
-    S = _S_SCALE
+    # ── Palette (shared with user chart) ─────────────────────────────────────
+    C_BG       = (0x30, 0x3f, 0x54, 255)
+    C_GRID     = (0x50, 0x64, 0x7b, 255)
+    C_MUTED    = (0xb8, 0xc9, 0xd6, 255)
+    C_TITLE    = (0xe5, 0xed, 0xf5, 255)
+    C_BAR_DEF  = (0xa9, 0xde, 0xe6, 255)   # regular day
+    C_BAR_SUN  = (0xd8, 0xf4, 0xf7, 255)   # Sunday highlight
+
+    # ── Fixed output size & supersampling ─────────────────────────────────────
+    W_OUT, H_OUT = 640, 1024
+    S = 2
+
+    # ── Layout (final-pixel coordinates) ─────────────────────────────────────
+    margin_t  = 100   # header
+    margin_b  = 52    # date labels
+    margin_lr = 28    # left/right
+
+    chart_x0 = margin_lr
+    chart_y0 = margin_t
+    chart_x1 = W_OUT - margin_lr
+    chart_y1 = H_OUT - margin_b
+    chart_w  = chart_x1 - chart_x0
+    chart_h  = chart_y1 - chart_y0
+
     n = len(days_data)
-
-    # ── Target (final) layout in pixels ──────────────────────────────────────
-    T_PAD_H    = 30    # horizontal padding
-    T_HEAD_H   = 90    # header height
-    T_CHART_H  = 300   # chart area height
-    T_LABEL_H  = 28    # date-label row below bars
-    T_BOT_PAD  = 14    # bottom padding
-
-    # Adaptive bar width clamped to [8, 56] px (final)
-    _TARGET_W  = 1600
-    _BAR_MIN   = 8
-    _BAR_MAX   = 56
-    _GAP       = 3
-    bar_w_t    = max(_BAR_MIN, min(_BAR_MAX, (_TARGET_W - T_PAD_H * 2) // max(n, 1)))
-
-    T_IMG_W = max(400, T_PAD_H * 2 + n * (bar_w_t + _GAP))
-    T_IMG_H = T_HEAD_H + T_CHART_H + T_LABEL_H + T_BOT_PAD
+    gap  = max(1, min(4, chart_w // (n * 4)))
+    bar_w = max(2, (chart_w - gap * (n - 1)) // n)
 
     # ── Draw at 2× ───────────────────────────────────────────────────────────
-    W          = T_IMG_W  * S
-    H          = T_IMG_H  * S
-    pad_h      = T_PAD_H  * S
-    head_h     = T_HEAD_H * S
-    chart_h    = T_CHART_H * S
-    bar_w      = bar_w_t  * S
-    gap        = _GAP     * S
-    cy_bottom  = head_h + chart_h
+    W, H = W_OUT * S, H_OUT * S
 
-    img  = Image.new("RGB", (W, H), _S_BG)
-    draw = ImageDraw.Draw(img)
+    def sc(v: float) -> int:
+        return int(v * S)
 
-    fnt_title = _load_font(_FONT_BOLD_PATHS, 24 * S)
-    fnt_sub   = _load_font(_FONT_REG_PATHS,  16 * S)
-    fnt_label = _load_font(_FONT_REG_PATHS,  10 * S)
+    img  = Image.new('RGBA', (W, H), C_BG)
+    draw = ImageDraw.Draw(img, 'RGBA')
+
+    fnt_title = _load_font(_FONT_BOLD_PATHS, sc(18))
+    fnt_sub   = _load_font(_FONT_REG_PATHS,  sc(11))
+    fnt_label = _load_font(_FONT_REG_PATHS,  sc(8))
+
+    # Title + subtitle (centered)
+    for txt, yy, font, fill in [
+        (f"Статистика за {period_label}", 14, fnt_title, C_TITLE),
+        (f'для чата "{chat_title[:38]}"', 40, fnt_sub,   C_MUTED),
+    ]:
+        bbox = draw.textbbox((0, 0), txt, font=font)
+        tw   = bbox[2] - bbox[0]
+        draw.text((sc(W_OUT / 2) - tw // 2, sc(yy)), txt, fill=fill, font=font)
 
     # Horizontal grid lines at 25 %, 50 %, 75 %, 100 %
-    for frac in (0.25, 0.50, 0.75, 1.00):
-        gy = cy_bottom - int(chart_h * frac)
-        draw.rectangle([pad_h, gy, W - pad_h, gy + S], fill=_S_GRID)
-
-    # Header
-    draw.text((pad_h, 10 * S), f"Статистика  {chat_title[:50]}", font=fnt_title, fill=_S_FG)
-    draw.text((pad_h, 48 * S), f"Период: {period_label}",        font=fnt_sub,   fill=_S_MUTED)
-
     max_count = max(c for _, c in days_data) or 1
+    for frac in (0.25, 0.50, 0.75, 1.00):
+        gy = chart_y1 - int(chart_h * frac)
+        draw.rectangle(
+            [sc(chart_x0), sc(gy), sc(chart_x1), sc(gy) + max(1, S)],
+            fill=C_GRID,
+        )
 
-    # Label density: skip labels to avoid crowding
+    # Label density: avoid crowding when many bars
     label_step = 1 if n <= 10 else 3 if n <= 21 else 7 if n <= 50 else 10
 
     for i, (day_ts, count) in enumerate(days_data):
-        x     = pad_h + i * (bar_w + gap)
-        bar_h = max(2 * S, int(chart_h * count / max_count))
-
-        # Highlight Sundays with a lighter bar shade for visual rhythm.
-        # Unix epoch (1970-01-01) was Thursday; day_index % 7 == 3 → Sunday.
+        x     = chart_x0 + i * (bar_w + gap)
+        bh    = max(1, int(chart_h * count / max_count))
+        # Sundays (epoch day % 7 == 3) get a lighter shade
         dow   = (day_ts // 86400) % 7
-        color = (110, 180, 255) if dow == 3 else (88, 166, 255)
-        draw.rectangle([x, cy_bottom - bar_h, x + bar_w, cy_bottom], fill=color)
-
+        color = C_BAR_SUN if dow == 3 else C_BAR_DEF
+        draw.rectangle(
+            [sc(x), sc(chart_y1 - bh), sc(x + bar_w), sc(chart_y1)],
+            fill=color,
+        )
         if i % label_step == 0:
             try:
                 day_str = datetime.utcfromtimestamp(day_ts).strftime("%d.%m")
             except Exception:
                 day_str = ""
-            draw.text((x, cy_bottom + 4 * S), day_str, font=fnt_label, fill=_S_MUTED)
+            draw.text((sc(x), sc(chart_y1 + 4)), day_str, fill=C_MUTED, font=fnt_label)
 
-    # Downscale to final size with LANCZOS antialiasing
-    img = img.resize((T_IMG_W, T_IMG_H), Image.LANCZOS)
-
+    # Downscale to final size
+    img_out = img.convert('RGB').resize((W_OUT, H_OUT), Image.LANCZOS)
     buf = _io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
+    img_out.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 
@@ -818,7 +908,7 @@ def _build_stats_caption(
     Stays within Telegram's 1024-character caption limit by truncating the
     list if necessary (the chart image itself always shows the full top-N).
     """
-    header = f"Статистика | {chat_title} | {period_label}\n\n"
+    header = f"📊 Статистика за {period_label} для чата \"{chat_title}\"\n\n"
     budget = _TG_CAPTION_LIMIT - len(header)
     lines: list[str] = []
     for i, (user_id, count) in enumerate(rows[:max_entries]):
