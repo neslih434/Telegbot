@@ -30,6 +30,8 @@ import settings_ui  # noqa: F401
 import antispam     # noqa: F401
 import banned_words  # noqa: F401
 import handlers     # noqa: F401
+from dotenv import load_dotenv
+load_dotenv()
 
 from config import bot
 
