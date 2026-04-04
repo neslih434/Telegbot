@@ -394,6 +394,7 @@ CLEANUP_SYSTEM_TYPES_ORDER = [
     "video_chat_started",
     "video_chat_ended",
     "video_chat_participants_invited",
+    "boost_added",
 ]
 
 CLEANUP_SYSTEM_LABELS = {
@@ -408,6 +409,7 @@ CLEANUP_SYSTEM_LABELS = {
     "video_chat_started": "Видеочат начался",
     "video_chat_ended": "Видеочат закончился",
     "video_chat_participants_invited": "Приглашения в видеочат",
+    "boost_added": "Бусты",
 }
 
 CLEANUP_SYSTEM_CONTENT_TYPES = list(CLEANUP_SYSTEM_LABELS.keys())
@@ -1566,13 +1568,11 @@ def _render_section_preview(chat_id: int, sec: str) -> str:
     has_buttons = bool((sc.get("buttons") or {}).get("rows"))
 
     emoji_settings = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_SENT_PM_ID}">⚙️</tg-emoji>'
-    emoji_ok = '<tg-emoji emoji-id="5427009714745517609">✅</tg-emoji>'
-    emoji_x = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CANCEL_ID}">❌</tg-emoji>'
 
-    status = f"{emoji_ok} Включено" if enabled else f"{emoji_x} Выключено"
-    text_flag = emoji_ok if has_text else emoji_x
-    media_flag = emoji_ok if has_media else emoji_x
-    buttons_flag = emoji_ok if has_buttons else emoji_x
+    status = "<code>включено</code>" if enabled else "<code>выключено</code>"
+    text_flag = "<code>есть</code>" if has_text else "<code>нет</code>"
+    media_flag = "<code>есть</code>" if has_media else "<code>нет</code>"
+    buttons_flag = "<code>есть</code>" if has_buttons else "<code>нет</code>"
     src = (sc.get("source") or "plain").upper()
 
     section_desc = {
@@ -1600,8 +1600,6 @@ def _render_cleanup_main(chat_id: int) -> str:
     sysd = cl.get("system") or {}
 
     emoji_settings = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_SENT_PM_ID}">⚙️</tg-emoji>'
-    emoji_ok = '<tg-emoji emoji-id="5427009714745517609">✅</tg-emoji>'
-    emoji_x = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CANCEL_ID}">❌</tg-emoji>'
 
     enabled_cmds = [s for s in CLEANUP_CMD_SIGNS if cmds.get(s)]
     enabled_cmds_txt = " ".join(enabled_cmds) if enabled_cmds else "нет"
@@ -1609,26 +1607,12 @@ def _render_cleanup_main(chat_id: int) -> str:
     enabled_sys = [ct for ct in CLEANUP_SYSTEM_TYPES_ORDER if sysd.get(ct)]
     enabled_sys_txt = str(len(enabled_sys)) if enabled_sys else "нет"
 
-    can_del = _bot_can_delete_messages(chat_id)
-    rights = f"{emoji_ok} Есть" if can_del else f"{emoji_x} Нет"
-
-    warn = ""
-    if not can_del:
-        warn = (
-            "\n\n<blockquote expandable=\"true\">"
-            "<b>Важно:</b> у бота нет права <b>Удалять сообщения</b> в этом чате.\n"
-            "Пока право не выдано, функции удаления работать не будут."
-            "</blockquote>"
-        )
-
     return (
         f"{emoji_settings} <b>Удаление сообщений</b>\n\n"
-        f"<b>Права бота на удаление:</b> {rights}\n"
         f"<b>Команды:</b> <code>{_html.escape(enabled_cmds_txt)}</code>\n"
-        f"<b>Системные сообщения:</b> <code>{_html.escape(enabled_sys_txt)}</code>\n"
-        "<i>Если у бота нет права “Удалять сообщения”, удаление работать не будет.</i>"
-        f"{warn}"
+        f"<b>Системные сообщения:</b> <code>{_html.escape(enabled_sys_txt)}</code>"
     )
+
 
 
 def _build_cleanup_main_keyboard(chat_id: int) -> InlineKeyboardMarkup:
@@ -1721,7 +1705,7 @@ def _render_cleanup_system(chat_id: int) -> str:
     return (
         f"{emoji} <b>Удаление системных сообщений</b>\n\n"
         "Удаляет выбранные системные сообщения.\n"
-        f"\n<b>Включено: количество включенных</b> <code>{len(enabled)}</code>"
+        f"\n<b>Включено:</b> <code>{len(enabled)}</code>"
     )
 
 
@@ -1970,7 +1954,7 @@ def _render_antiflood_settings_local(chat_id: int, page: str = "main") -> str:
     status_line = f"{emoji_ok} Включён" if enabled else f"{emoji_x} Выключен"
     delete_line = f"{emoji_ok} Включено" if delete_messages else f"{emoji_x} Выключено"
     ptype_line = _antiflood_type_label(ptype)
-    duration_line = "Не используется" if ptype == "kick" else _mod_duration_text(int(duration or 0))
+    duration_line = "нет" if ptype == "kick" else _mod_duration_text(int(duration or 0))
 
     hint = ""
     if page == "time":
@@ -2099,7 +2083,7 @@ def _build_antiflood_settings_keyboard_local(chat_id: int, page: str = "main") -
             pass
         kb.add(b_set)
 
-    b_back = InlineKeyboardButton("Назад", callback_data=f"st_back_main:{chat_id}")
+    b_back = InlineKeyboardButton("Назад", callback_data=f"st_main:{chat_id}:filters")
     try:
         b_back.icon_custom_emoji_id = str(EMOJI_ROLE_SETTINGS_BACK_PREMIUM_ID)
         b_back.style = "primary"
@@ -2142,21 +2126,9 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
     except Exception:
         pass
 
-    btn_antiflood = InlineKeyboardButton("Антифлуд", callback_data=f"stf:open:{chat_id}")
+    btn_filters = InlineKeyboardButton("Фильтры", callback_data=f"st_main:{chat_id}:filters")
     try:
-        btn_antiflood.icon_custom_emoji_id = "5451732530048802485"
-    except Exception:
-        pass
-
-    btn_antispam = InlineKeyboardButton("Анти-спам", callback_data=f"stas:open:{chat_id}")
-    try:
-        btn_antispam.icon_custom_emoji_id = "5467666648016358327"
-    except Exception:
-        pass
-
-    btn_banwords = InlineKeyboardButton("Запрещённые слова", callback_data=f"stbw:open:{chat_id}")
-    try:
-        btn_banwords.icon_custom_emoji_id = "5229113891081956317"
+        btn_filters.icon_custom_emoji_id = "5431736674147114227"
     except Exception:
         pass
 
@@ -2170,12 +2142,10 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
     kb.add(btn_welcome, btn_farewell)
     kb.add(btn_rules, btn_cleanup)
     if can_manage_roles:
-        kb.add(btn_warns, btn_antiflood)
-        kb.add(btn_antispam, btn_banwords)
+        kb.add(btn_warns, btn_filters)
         kb.add(btn_roles)
     else:
-        kb.add(btn_warns, btn_antiflood)
-        kb.add(btn_antispam, btn_banwords)
+        kb.add(btn_warns, btn_filters)
 
     btn_close = InlineKeyboardButton("Закрыть", callback_data=f"st_close:{chat_id}")
     try:
@@ -2183,6 +2153,49 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
     except Exception:
         pass
     kb.add(btn_close)
+
+    return kb
+
+
+def _render_filters_text(chat_id: int) -> str:
+    emoji_settings = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_SENT_PM_ID}">⚙️</tg-emoji>'
+    return (
+        f"{emoji_settings} <b>Фильтры</b>\n\n"
+        "<b>Выберите раздел для настройки:</b>"
+    )
+
+
+def _build_filters_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(row_width=1)
+
+    btn_antispam = InlineKeyboardButton("Анти-спам", callback_data=f"stas:open:{chat_id}")
+    try:
+        btn_antispam.icon_custom_emoji_id = "5375129357373165375"
+    except Exception:
+        pass
+    kb.add(btn_antispam)
+
+    btn_antiflood = InlineKeyboardButton("Анти-флуд", callback_data=f"stf:open:{chat_id}")
+    try:
+        btn_antiflood.icon_custom_emoji_id = "5451732530048802485"
+    except Exception:
+        pass
+    kb.add(btn_antiflood)
+
+    btn_banwords = InlineKeyboardButton("Запрещённые слова", callback_data=f"stbw:open:{chat_id}")
+    try:
+        btn_banwords.icon_custom_emoji_id = "5370930189322688800"
+    except Exception:
+        pass
+    kb.add(btn_banwords)
+
+    btn_back = InlineKeyboardButton("Назад", callback_data=f"st_back_main:{chat_id}")
+    try:
+        btn_back.icon_custom_emoji_id = str(EMOJI_ROLE_SETTINGS_BACK_PREMIUM_ID)
+        btn_back.style = "primary"
+    except Exception:
+        pass
+    kb.add(btn_back)
 
     return kb
 
@@ -3038,6 +3051,9 @@ def cb_settings_main(c: types.CallbackQuery):
             except Exception:
                 bot.answer_callback_query(c.id, "Не удалось открыть раздел антифлуда.", show_alert=True)
                 return
+        elif sec == "filters":
+            text = _render_filters_text(chat_id)
+            kb = _build_filters_keyboard(chat_id)
         elif sec == "roles":
             if not _user_can_edit_now(user, chat_id):
                 bot.answer_callback_query(c.id, "Недостаточно прав для настройки ролей.", show_alert=True)
@@ -4443,7 +4459,10 @@ def _antiflood_send_punish_message(
     target_id: int,
     actor_id: int,
     until_ts: int | None,
+    warn_count: int | None = None,
+    warn_limit: int | None = None,
 ) -> None:
+    from moderation import _fmt_time
     punish_label = {
         "mute": "Ограничение",
         "ban": "Блокировка",
@@ -4451,25 +4470,27 @@ def _antiflood_send_punish_message(
         "warn": "Предупреждение",
     }.get(action_kind, "Наказание")
 
+    if action_kind == "warn" and warn_count is not None and warn_limit is not None:
+        punish_label = f"Предупреждение [{warn_count}/{warn_limit}]"
+
+    emoji_p = f'<tg-emoji emoji-id="{EMOJI_PUNISHMENT_ID}">⚠️</tg-emoji>'
     target_name = link_for_user(chat_id, target_id)
     actor_name = link_for_user(chat_id, actor_id)
 
-    until_line = "Не используется"
+    lines = [
+        f"{emoji_p} <b>Пользователь</b> {target_name} <b>наказан.</b>",
+        f"<b>Наказание:</b> {punish_label}",
+    ]
+
     if action_kind in ("mute", "ban"):
         if until_ts and int(until_ts) > 0:
-            try:
-                until_line = datetime.fromtimestamp(int(until_ts)).strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                until_line = "навсегда"
+            lines.append(f"<b>Истекает:</b> {_fmt_time(int(until_ts))}")
         else:
-            until_line = "навсегда"
+            lines.append("<b>Истекает:</b> навсегда")
 
-    text = (
-        f"<b>Пользователь</b> {target_name} <b>автоматически наказан за флуд.</b>\n"
-        f"<b>Наказание:</b> {punish_label}\n"
-        f"<b>Истекает:</b> {until_line}\n\n"
-        f"<b>Администратор:</b> {actor_name}"
-    )
+    lines.append(f"<b>Причина:</b> Флуд")
+    lines.extend(["", f"<b>Администратор:</b> {actor_name}"])
+    text = "\n".join(lines)
 
     kb = None
     if action_kind in ("mute", "ban", "warn"):
@@ -4562,6 +4583,8 @@ def _antiflood_apply_punishment(
             target_id=target_id,
             actor_id=actor_id,
             until_ts=None,
+            warn_count=count_after,
+            warn_limit=warn_limit,
         )
         return True
 

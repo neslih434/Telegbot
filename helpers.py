@@ -228,6 +228,7 @@ def raw_edit_message_with_keyboard(chat_id: int, message_id: int, text: str, key
         "message_id": message_id,
         "text": text,
         "parse_mode": "HTML",
+        "disable_web_page_preview": True,
     }
     if kb_dict is not None:
         payload["reply_markup"] = json.dumps(kb_dict, ensure_ascii=False)

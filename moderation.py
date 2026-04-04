@@ -1159,7 +1159,10 @@ def _send_punish_message_with_button(
         label = "Блокировка"
         btn_text = "Разблокировать"
     else:
-        label = "Предупреждение"
+        if warn_count is not None and warn_limit is not None:
+            label = f"Предупреждение [{warn_count}/{warn_limit}]"
+        else:
+            label = "Предупреждение"
         btn_text = "Снять предупреждение"
 
     emoji_p = f'<tg-emoji emoji-id="{EMOJI_PUNISHMENT_ID}">⚠️</tg-emoji>'
@@ -1176,10 +1179,6 @@ def _send_punish_message_with_button(
             lines.append(f"<b>Истекает:</b> {_fmt_time(until_ts)}")
         else:
             lines.append("<b>Истекает:</b> навсегда")
-
-    if action_kind == "warn":
-        if warn_count is not None and warn_limit is not None:
-            lines.append(f"<b>Предупреждения:</b> {warn_count}/{warn_limit}")
 
     if reason:
         lines.append(f"<b>Причина:</b> {_html.escape(reason.strip())}")
@@ -1623,7 +1622,11 @@ def cmd_moderation_main(m: types.Message):
         if not ok2:
             return bot.reply_to(m, premium_prefix("Не удалось снять предупреждение."), parse_mode='HTML', disable_web_page_preview=True)
 
-        return bot.reply_to(m, _mod_unpunish_message("Предупреждение снято."), parse_mode='HTML', disable_web_page_preview=True)
+        ch_after = _mod_get_chat(m.chat.id)
+        warns_after = (ch_after.get("warns") or {}).get(str(target_id)) or []
+        count_after = len([w for w in warns_after if w.get("active", True)])
+        warn_limit = int((ch_after.get("settings") or {}).get("warn_limit", 3))
+        return bot.reply_to(m, _mod_unpunish_message(f"Предупреждение снято [{count_after}/{warn_limit}]."), parse_mode='HTML', disable_web_page_preview=True)
 
     action_map = {
         "mute": "mute",
@@ -1724,7 +1727,11 @@ def cb_punish_un(c: types.CallbackQuery):
         ok2, _ = _mod_warn_remove(chat_id, action_id, actor_id=user.id)
         if not ok2:
             return bot.answer_callback_query(c.id, "Предупреждение уже снято.", show_alert=True)
-        result_line = "<b>Предупреждение снято.</b>"
+        ch_after = _mod_get_chat(chat_id)
+        warns_after = (ch_after.get("warns") or {}).get(str(target_id)) or []
+        count_after = len([w for w in warns_after if w.get("active", True)])
+        warn_limit_val = int((ch_after.get("settings") or {}).get("warn_limit", 3))
+        result_line = f"<b>Предупреждение снято [{count_after}/{warn_limit_val}].</b>"
 
     _mod_save()
 
@@ -2058,11 +2065,7 @@ def _adminstats_text(chat_id: int, current_rows: list[dict], past_rows: list[dic
     except Exception:
         title = str(chat_id)
 
-    if view == "past":
-        block, page, total = _adminstats_render_section(chat_id, "Прошлые администраторы", past_rows, page)
-    else:
-        view = "current"
-        block, page, total = _adminstats_render_section(chat_id, "Нынешние администраторы", current_rows, page)
+    block, page, total = _adminstats_render_section(chat_id, "Администраторы", current_rows, page)
 
     emoji_stats = f'<tg-emoji emoji-id="{PREMIUM_STATS_EMOJI_ID}">📊</tg-emoji>'
     text = (
@@ -2094,13 +2097,6 @@ def _adminstats_keyboard(chat_id: int, view: str, page: int, total: int, viewer_
         ))
     if nav_row:
         kb.row(*nav_row)
-
-    toggle_label = "Нынешние администраторы" if view == "past" else "Прошлые администраторы"
-    kb.row(InlineKeyboardButton(
-        toggle_label,
-        callback_data=f"astnav:{chat_id}:{viewer_id}:{view}:{page}:switch",
-        icon_custom_emoji_id=str(EMOJI_LIST_ID),
-    ))
 
     return kb
 
@@ -2211,7 +2207,8 @@ def cb_adminstats_nav(c: types.CallbackQuery):
     if view not in ("current", "past"):
         view = "current"
 
-    rows = current_rows if view == "current" else past_rows
+    rows = current_rows
+    view = "current"
     total = max(1, (len(rows) + ADMIN_STATS_PAGE_SIZE - 1) // ADMIN_STATS_PAGE_SIZE)
     page = max(0, min(page, total - 1))
 
@@ -2219,9 +2216,6 @@ def cb_adminstats_nav(c: types.CallbackQuery):
         page = max(0, page - 1)
     elif action == "next":
         page = min(total - 1, page + 1)
-    elif action == "switch":
-        view = "past" if view == "current" else "current"
-        page = 0
 
     text, page, total = _adminstats_text(chat_id, current_rows, past_rows, view, page)
     kb = _adminstats_keyboard(chat_id, view, page, total, viewer_id)

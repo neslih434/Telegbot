@@ -347,7 +347,7 @@ def _bw_get_settings(chat_id: int) -> dict:
     if pt not in ("warn", "mute", "ban", "kick"):
         pt = "warn"
     pd = p.get("duration")
-    if pt in ("mute", "ban"):
+    if pt in ("mute", "ban", "warn"):
         if pd is None:
             pd = 3600
         else:
@@ -620,7 +620,7 @@ def _render_bw_main(chat_id: int, page: str = "main") -> str:
     ptype = settings["punish"]["type"]
     dur = settings["punish"]["duration"]
     punish_label = _PUNISH_LABELS.get(ptype, ptype)
-    dur_label = "Не используется" if ptype in ("warn", "kick") else _mod_duration_text(int(dur or 0))
+    dur_label = "нет" if ptype == "kick" else _mod_duration_text(int(dur or 0))
     terms_count = len(terms)
     allow_count = len(allow_terms)
 
@@ -639,7 +639,7 @@ def _render_bw_main(chat_id: int, page: str = "main") -> str:
         "punish":       "\n\n<i>Выберите тип наказания за нарушение.</i>",
         "duration":     (
             "\n\nДля выбранного типа наказания длительность не используется."
-            if ptype in ("warn", "kick") else
+            if ptype == "kick" else
             "\n\n<i>Установите длительность наказания.</i>"
         ),
         "terms":        "\n\n<i>Управление списком запрещённых слов/фраз.</i>",
@@ -895,7 +895,7 @@ def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup
         return kb
 
     # ── Назад ──
-    kb.add(_back_btn(f"st_back_main:{chat_id}"))
+    kb.add(_back_btn(f"st_main:{chat_id}:filters"))
     return kb
 
 
@@ -1257,7 +1257,7 @@ def cb_bw_settings(c: types.CallbackQuery) -> None:
         if pt in ("warn", "mute", "ban", "kick"):
             s = _bw_get_settings(chat_id)
             s["punish"]["type"] = pt
-            if pt in ("warn", "kick"):
+            if pt == "kick":
                 s["punish"]["duration"] = None
             elif s["punish"].get("duration") is None:
                 s["punish"]["duration"] = 3600
@@ -1273,8 +1273,8 @@ def cb_bw_settings(c: types.CallbackQuery) -> None:
     # ── duration prompt ──
     elif action == "dur_prompt":
         s = _bw_get_settings(chat_id)
-        if s["punish"]["type"] in ("warn", "kick"):
-            bot.answer_callback_query(c.id, "Для выбранного наказания длительность не используется.", show_alert=True)
+        if s["punish"]["type"] == "kick":
+            bot.answer_callback_query(c.id, "Для исключения длительность не используется.", show_alert=True)
             return
         _bw_pending_put("pending_bw_duration", user.id, chat_id)
         _delete_pending_ui(msg_chat.id, "pending_bw_duration_msg", user.id, also_msg_id=c.message.message_id)
@@ -1642,12 +1642,12 @@ def handle_banwords_private_pending(m: types.Message) -> bool:
 
         s = _bw_get_settings(dur_cid)
         ptype = s["punish"]["type"]
-        if ptype in ("warn", "kick"):
+        if ptype == "kick":
             _bw_pending_pop("pending_bw_duration", user_id)
             _pending_msg_pop("pending_bw_duration_msg", user_id)
             bot.send_message(
                 m.chat.id,
-                premium_prefix("Для выбранного наказания длительность не используется."),
+                premium_prefix("Для исключения длительность не используется."),
                 parse_mode="HTML",
             )
             return True
@@ -1936,7 +1936,7 @@ def _bw_apply_punishment(
     punish = settings.get("punish") or {}
     ptype = str(punish.get("type") or "warn").lower()
     duration_raw = punish.get("duration")
-    reason = f"Запрещённые слова: {matched_term[:30]}"
+    reason = "Запрещённое слово"
 
     actor_id = _get_bot_id() or target_id
 

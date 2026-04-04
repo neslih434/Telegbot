@@ -219,7 +219,7 @@ def _antispam_get_section(chat_id: int, section: str) -> dict:
     if pt not in ("warn", "mute", "ban", "kick"):
         pt = "warn"
     pd = p.get("duration")
-    if pt in ("mute", "ban"):
+    if pt in ("mute", "ban", "warn"):
         if pd is None:
             pd = 3600
         else:
@@ -296,7 +296,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
     ptype = sec["punish"]["type"]
     dur = sec["punish"]["duration"]
     punish_label = _PUNISH_LABELS.get(ptype, "Предупреждение")
-    dur_label = "Не используется" if ptype in ("warn", "kick") else _mod_duration_text(int(dur or 0))
+    dur_label = "нет" if ptype == "kick" else _mod_duration_text(int(dur or 0))
 
     text = (
         f"{emoji_settings} <b>{label}</b>\n\n"
@@ -329,7 +329,7 @@ def _render_antispam_section(chat_id: int, section: str, page: str = "main") -> 
     if page == "punish":
         hint = "\n\n<i>Выберите наказание за нарушение.</i>"
     elif page == "duration":
-        if ptype in ("warn", "kick"):
+        if ptype == "kick":
             hint = "\n\nДля выбранного типа наказания длительность не используется."
         else:
             hint = "\n\n<i>Установите длительность наказания.</i>"
@@ -425,7 +425,7 @@ def _build_antispam_main_keyboard(chat_id: int, page: str = "main") -> InlineKey
             pass
         kb.add(b_del_exc)
 
-    b_back = InlineKeyboardButton("Назад", callback_data=f"st_back_main:{chat_id}")
+    b_back = InlineKeyboardButton("Назад", callback_data=f"st_main:{chat_id}:filters")
     try:
         b_back.icon_custom_emoji_id = str(EMOJI_ROLE_SETTINGS_BACK_PREMIUM_ID)
         b_back.style = "primary"
@@ -909,7 +909,7 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
         pt = (extra or "").strip().lower()
         if pt in ("warn", "mute", "ban", "kick"):
             sec["punish"]["type"] = pt
-            if pt in ("warn", "kick"):
+            if pt == "kick":
                 sec["punish"]["duration"] = None
             elif sec["punish"].get("duration") is None:
                 sec["punish"]["duration"] = 3600
@@ -925,8 +925,8 @@ def cb_antispam_settings(c: types.CallbackQuery) -> None:
     # ── duration prompt ──
     elif action == "dur_prompt":
         ptype = sec["punish"]["type"]
-        if ptype in ("warn", "kick"):
-            bot.answer_callback_query(c.id, "Для выбранного наказания длительность не используется.", show_alert=True)
+        if ptype == "kick":
+            bot.answer_callback_query(c.id, "Для исключения длительность не используется.", show_alert=True)
             return
 
         _as_pending_put("pending_antispam_duration", user.id, chat_id, section)
@@ -1203,12 +1203,12 @@ def handle_antispam_private_pending(m: types.Message) -> bool:
 
         sec = _antispam_get_section(dur_cid, dur_sec)
         ptype = sec["punish"]["type"]
-        if ptype in ("warn", "kick"):
+        if ptype == "kick":
             _as_pending_pop_cid_sec("pending_antispam_duration", user_id)
             _pending_msg_pop("pending_antispam_duration_msg", user_id)
             bot.send_message(
                 m.chat.id,
-                premium_prefix("Для выбранного наказания длительность не используется."),
+                premium_prefix("Для исключения длительность не используется."),
                 parse_mode="HTML",
             )
             return True
