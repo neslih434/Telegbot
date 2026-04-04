@@ -1,0 +1,37 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      # Push all secrets from GitHub → Railway Variables before deploying.
+      # Railway will inject them as env vars into the running container.
+      - name: Sync secrets to Railway Variables
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          OWNER_USERNAME: ${{ secrets.OWNER_USERNAME }}
+        run: |
+          railway variables --set "BOT_TOKEN=$BOT_TOKEN"
+          railway variables --set "API_ID=$API_ID"
+          railway variables --set "API_HASH=$API_HASH"
+          railway variables --set "OWNER_USERNAME=$OWNER_USERNAME"
+          railway variables --set "DATA_DIR=/data"
+          railway variables --set "TG_SESSION_NAME=/data/user_session"
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --detach
