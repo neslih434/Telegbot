@@ -422,6 +422,34 @@ def get_stats_for_period(
         return []
 
 
+def get_stats_by_day(
+    chat_id: int, since_ts: int, max_days: int = 100
+) -> list[tuple[int, int]]:
+    """
+    Return [(day_ts, count)] grouped by UTC day, ordered ASC, limited to max_days.
+    day_ts is the Unix timestamp of midnight UTC for that day.
+    """
+    try:
+        conn = _db_connect()
+        with _DB_LOCK:
+            rows = conn.execute(
+                """
+                SELECT (ts / 86400) * 86400 AS day_ts, COUNT(*) AS cnt
+                FROM msg_events
+                WHERE chat_id = ? AND ts >= ?
+                GROUP BY day_ts
+                ORDER BY day_ts DESC
+                LIMIT ?
+                """,
+                (int(chat_id), int(since_ts), int(max_days)),
+            ).fetchall()
+        # Reverse so result is chronological (ASC)
+        return [(int(r[0]), int(r[1])) for r in reversed(rows)]
+    except Exception as e:
+        print(f"[GET STATS BY DAY] Error: {e}")
+        return []
+
+
 def _periodic_flush_worker():
     sleep_seconds = max(1, DB_FLUSH_INTERVAL_SECONDS)
     while True:

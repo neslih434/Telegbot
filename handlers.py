@@ -75,6 +75,7 @@ from persistence import (
     GLOBAL_LAST_SEEN_UPDATE_SECONDS,
     # message-event stats
     get_stats_for_period,
+    get_stats_by_day,
 )
 from helpers import *
 from helpers import _dev_contact_find_item, _remember_owner_user_id, _user_can_open_settings
@@ -116,6 +117,30 @@ PERIOD_LABELS: dict[str, str] = {
     "30d": "30 дней",
 }
 
+# ==== ПРОФИЛЬ-КЭШ ИМЁН ====
+# Кешируем отображаемые имена пользователей на 5 минут чтобы не бить TG API
+# каждый раз при построении страницы статистики.
+
+_PROFILE_NAME_CACHE: dict[tuple[int, int], tuple[float, str]] = {}
+_PROFILE_NAME_CACHE_LOCK = threading.Lock()
+_PROFILE_NAME_CACHE_TTL: int = 300  # секунды
+
+
+def _get_cached_display_name(chat_id: int, user_id: int) -> str | None:
+    """Return cached display name if still fresh, else None."""
+    key = (int(chat_id), int(user_id))
+    now = time.monotonic()
+    with _PROFILE_NAME_CACHE_LOCK:
+        cached = _PROFILE_NAME_CACHE.get(key)
+        if cached and (now - cached[0]) < _PROFILE_NAME_CACHE_TTL:
+            return cached[1]
+    return None
+
+
+def _set_cached_display_name(chat_id: int, user_id: int, name: str) -> None:
+    key = (int(chat_id), int(user_id))
+    with _PROFILE_NAME_CACHE_LOCK:
+        _PROFILE_NAME_CACHE[key] = (time.monotonic(), name)
 
 def _get_period_since(period: str) -> int:
     """Return unix timestamp marking the start of the requested period (0 = all time)."""
@@ -154,11 +179,12 @@ def stats_user_link_html(chat: types.Chat, user_id: int, display_name: str) -> s
 
     return f'<a href="{url}"><b>{display_name}</b></a>'
 
-def build_group_stats_pages(chat: types.Chat, period: str = "all") -> list[str]:
+def build_group_stats_pages(chat: types.Chat, period: str = "all", max_items: int | None = None) -> list[str]:
     """Build paginated stats text for the given period.
 
     period='all'  → uses in-memory GROUP_STATS (historical all-time data).
     period='1d'|'7d'|'30d' → queries msg_events SQLite table.
+    max_items — if set, truncate the full list to this many entries (one page only).
     """
     period_label = PERIOD_LABELS.get(period, period)
 
@@ -187,15 +213,22 @@ def build_group_stats_pages(chat: types.Chat, period: str = "all") -> list[str]:
                 f"<i>Данные накапливаются с момента последнего обновления бота.</i>"
             )]
 
+    if max_items is not None:
+        rows_data = rows_data[:max_items]
+
     items: list[str] = []
     for user_id, count, last_msg_id in rows_data:
         link = build_message_link(chat, last_msg_id) if last_msg_id else ""
 
-        try:
-            u = bot.get_chat_member(chat.id, int(user_id)).user
-            display_name = u.full_name or u.first_name or u.username or "Пользователь"
-        except Exception:
-            display_name = "Пользователь"
+        # Use profile name cache to avoid repeated TG API calls
+        display_name = _get_cached_display_name(chat.id, user_id)
+        if display_name is None:
+            try:
+                u = tg_get_chat_member(chat.id, int(user_id)).user
+                display_name = u.full_name or u.first_name or u.username or "Пользователь"
+            except Exception:
+                display_name = "Пользователь"
+            _set_cached_display_name(chat.id, user_id, display_name)
 
         name_html = stats_user_link_html(chat, int(user_id), display_name)
 
@@ -207,11 +240,12 @@ def build_group_stats_pages(chat: types.Chat, period: str = "all") -> list[str]:
             base += f' ( <a href="{link}">последнее сообщение</a> )'
         items.append(base)
 
-    total_pages = max(1, (len(items) + GROUP_STATS_PAGE_SIZE - 1) // GROUP_STATS_PAGE_SIZE)
+    page_size = GROUP_STATS_PAGE_SIZE
+    total_pages = max(1, (len(items) + page_size - 1) // page_size)
     pages: list[str] = []
     for page_idx in range(total_pages):
-        start = page_idx * GROUP_STATS_PAGE_SIZE
-        end = start + GROUP_STATS_PAGE_SIZE
+        start = page_idx * page_size
+        end = start + page_size
         chunk = items[start:end]
 
         header = (
@@ -303,6 +337,74 @@ def cmd_group_stats_manual(m: types.Message):
     _send_stats_message(m.chat, period="all", reply_to_message_id=m.message_id)
 
 
+# ---- Новые команды: статистика день / неделя / месяц / вся ----
+
+def _send_stats_limited(
+    chat: types.Chat,
+    period: str,
+    chart_type: str,
+    reply_to_message_id: int | None = None,
+) -> None:
+    """Send a single-page stats message (top 30) with just the image button."""
+    pages = build_group_stats_pages(chat, period, max_items=30)
+    keyboard = {"inline_keyboard": [[{"text": "📸 Картинка", "callback_data": "gstats_img"}]]}
+    resp = raw_send_with_inline_keyboard(
+        chat.id, pages[0], keyboard,
+        reply_to_message_id=reply_to_message_id,
+    )
+    if not resp or not resp.get("ok"):
+        return
+    msg_id = resp["result"]["message_id"]
+    STATS_PAGES[(chat.id, msg_id)] = {
+        "pages": pages,
+        "current": 0,
+        "period": period,
+        "chart_type": chart_type,
+    }
+
+
+def _stats_limited_guard(m: types.Message, period: str, chart_type: str) -> None:
+    """Common guard + dispatch for the 4 limited stats commands."""
+    add_stat_message(m)
+    add_stat_command('group_stat')
+
+    if not is_group_approved(m.chat.id):
+        return bot.reply_to(
+            m,
+            "⏳ Бот находится на модерации. Ожидание подтверждения от разработчика.",
+            parse_mode='HTML',
+        )
+
+    wait_seconds = cooldown_hit('chat', int(m.chat.id), 'group_stat', 30)
+    if wait_seconds > 0:
+        return reply_cooldown_message(m, wait_seconds, scope='chat', bucket=int(m.chat.id), action='group_stat')
+
+    if m.reply_to_message:
+        return
+
+    _send_stats_limited(m.chat, period=period, chart_type=chart_type, reply_to_message_id=m.message_id)
+
+
+@bot.message_handler(func=lambda m: m.chat.type in ['group', 'supergroup'] and is_exact_stat_day(m.text))
+def cmd_stats_day(m: types.Message):
+    _stats_limited_guard(m, period='1d', chart_type='users')
+
+
+@bot.message_handler(func=lambda m: m.chat.type in ['group', 'supergroup'] and is_exact_stat_week(m.text))
+def cmd_stats_week(m: types.Message):
+    _stats_limited_guard(m, period='7d', chart_type='daily_7')
+
+
+@bot.message_handler(func=lambda m: m.chat.type in ['group', 'supergroup'] and is_exact_stat_month(m.text))
+def cmd_stats_month(m: types.Message):
+    _stats_limited_guard(m, period='30d', chart_type='users')
+
+
+@bot.message_handler(func=lambda m: m.chat.type in ['group', 'supergroup'] and is_exact_stat_all(m.text))
+def cmd_stats_all(m: types.Message):
+    _stats_limited_guard(m, period='all', chart_type='daily_100')
+
+
 @bot.callback_query_handler(func=lambda call: bool(call.data) and call.data.startswith("gstats_"))
 def cb_group_stats_pagination(call: types.CallbackQuery):
     if _is_duplicate_callback_query(call):
@@ -339,9 +441,11 @@ def cb_group_stats_pagination(call: types.CallbackQuery):
                 call.id, "Эта статистика устарела, откройте новую.", show_alert=True
             )
         period = state.get("period", "all")
+        chart_type = state.get("chart_type", "users")
         _IMG_TASK_QUEUE.put({
             "chat_id": m.chat.id,
             "period": period,
+            "chart_type": chart_type,
             "reply_msg_id": m.message_id,
         })
         return bot.answer_callback_query(call.id, "⏳ Генерирую картинку…")
@@ -394,7 +498,12 @@ _IMG_TASK_QUEUE: _queue.Queue = _queue.Queue()
 
 
 def _lookup_user_display_name(chat_id: int, user_id: int) -> str:
-    """Return a display name for the user. Tries local cache before calling TG API."""
+    """Return a display name for the user. Tries profile name cache, then local data, then TG API."""
+    # Fast path: in-memory TTL cache
+    cached = _get_cached_display_name(chat_id, user_id)
+    if cached is not None:
+        return cached
+
     chat_id_s = str(chat_id)
     user_id_s = str(user_id)
 
@@ -408,7 +517,9 @@ def _lookup_user_display_name(chat_id: int, user_id: int) -> str:
         ).strip()
     )
     if name:
-        return name[:30]
+        result = name[:30]
+        _set_cached_display_name(chat_id, user_id, result)
+        return result
 
     # Global users cache
     gdata = GLOBAL_USERS.get(user_id_s) or {}
@@ -420,16 +531,20 @@ def _lookup_user_display_name(chat_id: int, user_id: int) -> str:
         ).strip()
     )
     if gname:
-        return gname[:30]
+        result = gname[:30]
+        _set_cached_display_name(chat_id, user_id, result)
+        return result
 
     # Fall back to TG API (with cache)
     try:
         member = tg_get_chat_member(chat_id, user_id)
         u = member.user
         n = (u.full_name or u.first_name or u.username or "").strip()
-        return (n or f"ID {user_id}")[:30]
+        result = (n or f"ID {user_id}")[:30]
     except Exception:
-        return f"ID {user_id}"
+        result = f"ID {user_id}"
+    _set_cached_display_name(chat_id, user_id, result)
+    return result
 
 
 def _render_stats_image(
@@ -437,11 +552,12 @@ def _render_stats_image(
     chat_title: str,
     period_label: str,
     users_map: dict[int, str],
+    max_users: int = 15,
 ) -> bytes:
-    """Render a horizontal bar-chart PNG and return the raw bytes."""
+    """Render a horizontal bar-chart PNG (per-user) and return the raw bytes."""
     from PIL import Image, ImageDraw, ImageFont  # lazy import — Pillow is optional
 
-    top_n = rows[:15]
+    top_n = rows[:max_users]
     if not top_n:
         raise ValueError("No rows to render")
 
@@ -532,24 +648,184 @@ def _render_stats_image(
     return buf.getvalue()
 
 
+def _render_daily_chart(
+    days_data: list[tuple[int, int]],
+    chat_title: str,
+    period_label: str,
+) -> bytes:
+    """Render a vertical bar chart grouped by day (each bar = one day) and return PNG bytes.
+
+    days_data: list of (day_ts_utc, count) ordered ASC (oldest → newest).
+    Bars are labeled 'dd.mm'; label density is auto-reduced for long series.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    if not days_data:
+        raise ValueError("No data")
+
+    n = len(days_data)
+    # Adaptive bar width: wider for few bars, narrow for many
+    bar_w = max(5, min(48, 680 // max(n, 1)))
+    gap = 2
+    padding_h = 24   # horizontal padding
+    header_h = 68
+    chart_h = 200    # chart area height
+    label_h = 22     # area below bars for date labels
+    bottom_pad = 10
+
+    img_w = max(300, padding_h * 2 + n * (bar_w + gap))
+    img_h = header_h + chart_h + label_h + bottom_pad
+
+    img = Image.new("RGB", (img_w, img_h), (22, 27, 34))
+    draw = ImageDraw.Draw(img)
+
+    # Font loading
+    font_bold = font_small = None
+    for fp in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/app/fonts/DejaVuSans-Bold.ttf",
+    ]:
+        try:
+            font_bold = ImageFont.truetype(fp, 14)
+            break
+        except Exception:
+            pass
+    for fp in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/app/fonts/DejaVuSans.ttf",
+    ]:
+        try:
+            font_small = ImageFont.truetype(fp, 9)
+            break
+        except Exception:
+            pass
+    if font_bold is None:
+        font_bold = ImageFont.load_default()
+    if font_small is None:
+        font_small = font_bold
+
+    # Header
+    draw.text((padding_h, 10), f"📊  {chat_title[:40]}", font=font_bold, fill=(229, 229, 229))
+    draw.text((padding_h, 34), f"Период: {period_label}", font=font_small, fill=(139, 148, 158))
+
+    max_count = max(c for _, c in days_data) or 1
+    chart_y_bottom = header_h + chart_h
+
+    # Determine label step so we don't draw too many overlapping labels
+    if n <= 10:
+        label_step = 1
+    elif n <= 21:
+        label_step = 3
+    elif n <= 50:
+        label_step = 7
+    else:
+        label_step = 10
+
+    for i, (day_ts, count) in enumerate(days_data):
+        x = padding_h + i * (bar_w + gap)
+        bar_h = max(2, int(chart_h * count / max_count))
+
+        # Highlight Sundays (day_ts / 86400 % 7 == 3 for Sun in UTC)
+        day_of_week = (day_ts // 86400) % 7
+        color = (110, 180, 255) if day_of_week == 3 else (88, 166, 255)
+        draw.rectangle([x, chart_y_bottom - bar_h, x + bar_w, chart_y_bottom], fill=color)
+
+        # Date label
+        if i % label_step == 0:
+            try:
+                day_str = datetime.utcfromtimestamp(day_ts).strftime("%d.%m")
+            except Exception:
+                day_str = ""
+            draw.text((x, chart_y_bottom + 4), day_str, font=font_small, fill=(139, 148, 158))
+
+    buf = _io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
 def _process_image_task(task: dict) -> None:
     chat_id: int = task["chat_id"]
     period: str = task.get("period", "all")
+    chart_type: str = task.get("chart_type", "users")
     reply_msg_id: int | None = task.get("reply_msg_id")
     period_label = PERIOD_LABELS.get(period, period)
 
-    # Collect rows
+    # Get chat title
+    try:
+        chat_obj = tg_get_chat(chat_id)
+        chat_title = getattr(chat_obj, "title", None) or str(chat_id)
+    except Exception:
+        chat_title = str(chat_id)
+
+    # ── Daily chart (weekly 7d or all-time 100d) ─────────────────────────────
+    if chart_type in ("daily_7", "daily_100"):
+        max_days = 7 if chart_type == "daily_7" else 100
+        since_ts = _get_period_since("7d") if chart_type == "daily_7" else 0
+        if since_ts == 0:
+            # all-time: use last 100 days window
+            since_ts = int(time.time()) - 100 * 86400
+        days_data = get_stats_by_day(chat_id, since_ts, max_days=max_days)
+
+        if not days_data:
+            try:
+                bot.send_message(
+                    chat_id,
+                    "📊 Нет данных для отображения за выбранный период.",
+                    reply_to_message_id=reply_msg_id,
+                )
+            except Exception:
+                pass
+            return
+
+        try:
+            img_bytes = _render_daily_chart(days_data, chat_title, period_label)
+        except ImportError:
+            try:
+                bot.send_message(
+                    chat_id,
+                    "❌ Генерация изображений недоступна (Pillow не установлен).",
+                    reply_to_message_id=reply_msg_id,
+                )
+            except Exception:
+                pass
+            return
+        except Exception as e:
+            print(f"[IMAGE RENDER daily] Error: {e}")
+            try:
+                bot.send_message(
+                    chat_id,
+                    "❌ Ошибка при генерации изображения статистики.",
+                    reply_to_message_id=reply_msg_id,
+                )
+            except Exception:
+                pass
+            return
+
+        try:
+            bot.send_photo(
+                chat_id,
+                _io.BytesIO(img_bytes),
+                caption=f"📊 Статистика · {period_label}",
+                reply_to_message_id=reply_msg_id,
+            )
+        except Exception as e:
+            print(f"[IMAGE SEND daily] Error: {e}")
+        return
+
+    # ── User bar chart ────────────────────────────────────────────────────────
+    max_users = 30 if chart_type == "users" else 15
+
     if period == "all":
         chat_stats = GROUP_STATS.get(str(chat_id), {})
         rows: list[tuple[int, int]] = sorted(
             [(int(uid), d.get("count", 0)) for uid, d in chat_stats.items()],
             key=lambda x: x[1],
             reverse=True,
-        )[:15]
+        )[:max_users]
     else:
         since_ts = _get_period_since(period)
         raw = get_stats_for_period(chat_id, since_ts)
-        rows = [(r[0], r[1]) for r in raw][:15]
+        rows = [(r[0], r[1]) for r in raw][:max_users]
 
     if not rows:
         try:
@@ -565,16 +841,9 @@ def _process_image_task(task: dict) -> None:
     # Build users_map
     users_map: dict[int, str] = {uid: _lookup_user_display_name(chat_id, uid) for uid, _ in rows}
 
-    # Get chat title
-    try:
-        chat_obj = tg_get_chat(chat_id)
-        chat_title = getattr(chat_obj, "title", None) or str(chat_id)
-    except Exception:
-        chat_title = str(chat_id)
-
     # Render
     try:
-        img_bytes = _render_stats_image(rows, chat_title, period_label, users_map)
+        img_bytes = _render_stats_image(rows, chat_title, period_label, users_map, max_users=max_users)
     except ImportError:
         try:
             bot.send_message(

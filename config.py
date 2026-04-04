@@ -87,6 +87,23 @@ TG_SESSION_NAME = os.getenv("TG_SESSION_NAME", "user_session")
 
 tg_client = TelegramClient(TG_SESSION_NAME, API_ID, API_HASH)
 
+# Telethon runtime status — written by get_user_id_by_username_mtproto
+_tg_client_status: dict[str, Any] = {
+    "connected": False,
+    "last_error": None,
+    "last_use": 0,
+}
+
+
+async def _ensure_tg_client_connected() -> None:
+    """Connect / reconnect tg_client if necessary."""
+    if not tg_client.is_connected():
+        print("[MTProto] Не подключён — вызываю connect()")
+        await tg_client.connect()
+    if not await tg_client.is_user_authorized():
+        print("[MTProto] Не авторизован — вызываю start()")
+        await tg_client.start()
+
 
 async def get_user_id_by_username_mtproto(username: str) -> int | None:
     username = (username or "").strip().lstrip("@")
@@ -94,15 +111,25 @@ async def get_user_id_by_username_mtproto(username: str) -> int | None:
         return None
     try:
         print(f"[MTProto] Пытаюсь resolve @{username}")
-        await tg_client.start()
+        await _ensure_tg_client_connected()
+        _tg_client_status["connected"] = True
+        _tg_client_status["last_use"] = int(time.time())
         entity = await tg_client.get_entity(username)
         print(f"[MTProto] Нашёл @{username}: id={entity.id}")
         return int(entity.id)
     except UsernameNotOccupiedError:
         print(f"[MTProto] @{username} не занят (UsernameNotOccupiedError)")
+        _tg_client_status["connected"] = True
         return None
     except Exception as e:
         print(f"[MTProto] Ошибка при resolve @{username}: {e}")
+        _tg_client_status["connected"] = False
+        _tg_client_status["last_error"] = str(e)[:120]
+        # Сброс соединения для чистого реконнекта при следующем вызове
+        try:
+            await tg_client.disconnect()
+        except Exception:
+            pass
         return None
 
 
