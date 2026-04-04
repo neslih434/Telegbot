@@ -80,6 +80,32 @@ _TG_USERNAME_RE = _re.compile(r'@[a-zA-Z][a-zA-Z0-9_]{3,}')
 # Любые HTTP(S)/www ссылки
 _ALL_LINKS_RE = _re.compile(r'(?:https?://|www\.)\S+', _re.IGNORECASE)
 
+# t.me/c/{peer_id}/... — ссылки на сообщения в приватных супергруппах
+_TG_INTERNAL_MSG_RE = _re.compile(
+    r'(?:https?://)?t(?:elegram)?\.me/c/(\d+)/\d+',
+    _re.IGNORECASE,
+)
+
+
+def _is_internal_group_link(url: str, chat_id: int) -> bool:
+    """Return True if *url* is a t.me/c/{peer_id}/... link pointing to a message
+    inside the group identified by *chat_id*.
+
+    For private supergroups Telegram encodes the group as a positive *peer_id*
+    obtained by stripping the ``-100`` prefix from the negative chat_id:
+        chat_id = -1001234567890  →  peer_id = 1234567890
+    """
+    m = _TG_INTERNAL_MSG_RE.search(url)
+    if not m:
+        return False
+    peer_id_str = m.group(1)
+    chat_id_str = str(chat_id)
+    # Convert chat_id to peer_id by removing leading "-100" (supergroup/channel prefix)
+    if chat_id_str.startswith("-100"):
+        return peer_id_str == chat_id_str[4:]
+    # For other negative IDs just compare the absolute value
+    return peer_id_str == str(abs(chat_id))
+
 # Punishment type labels
 _PUNISH_LABELS: dict[str, str] = {
     "warn": "Предупреждение",
@@ -1652,6 +1678,16 @@ def _antispam_runtime_check(m: types.Message) -> None:
         # Check regular user @usernames if user_usernames toggle is on
         if not violation and sec_tg.get("check_user_usernames") and _TG_USERNAME_RE.search(combined_text):
             violation = True
+        if violation:
+            # Internal-link exception: if ALL detected t.me URLs (from text and
+            # entity links) are links to messages within the same group, do not punish.
+            tg_urls_from_text = _TG_URL_RE.findall(combined_text)
+            tg_urls_from_entities = [u for u in entity_urls if _TG_URL_RE.search(u)]
+            tg_urls_found = tg_urls_from_text + tg_urls_from_entities
+            if tg_urls_found and all(
+                _is_internal_group_link(u, chat_id) for u in tg_urls_found
+            ):
+                violation = False
         if violation and not _antispam_matches_exceptions(combined_text, exceptions):
             _antispam_apply_punishment(chat_id, user, "tg_links", sec_tg, msg_id)
             return
@@ -1665,33 +1701,37 @@ def _antispam_runtime_check(m: types.Message) -> None:
             getattr(m, "forward_date", None)
         )
         if is_forwarded:
-            # Determine forward source type
-            fwd_from = getattr(m, "forward_from", None)
+            # Same-group exception: forwarded from the same group → skip
             fwd_from_chat = getattr(m, "forward_from_chat", None)
-            if fwd_from_chat:
-                chat_type = getattr(fwd_from_chat, "type", "") or ""
-                if chat_type == "channel":
-                    src_type = "channels"
-                elif chat_type in ("group", "supergroup"):
-                    src_type = "groups"
+            if fwd_from_chat and getattr(fwd_from_chat, "id", None) == chat_id:
+                pass
+            else:
+                # Determine forward source type
+                fwd_from = getattr(m, "forward_from", None)
+                if fwd_from_chat:
+                    chat_type = getattr(fwd_from_chat, "type", "") or ""
+                    if chat_type == "channel":
+                        src_type = "channels"
+                    elif chat_type in ("group", "supergroup"):
+                        src_type = "groups"
+                    else:
+                        src_type = "users"
+                elif fwd_from:
+                    src_type = "bots" if getattr(fwd_from, "is_bot", False) else "users"
                 else:
                     src_type = "users"
-            elif fwd_from:
-                src_type = "bots" if getattr(fwd_from, "is_bot", False) else "users"
-            else:
-                src_type = "users"
 
-            fwd_types = sec_fwd.get("types") or {}
-            if _should_block_by_type(fwd_types, src_type):
-                fwd_text = combined_text
-                if fwd_from:
-                    fwd_text += " " + str(getattr(fwd_from, "username", "") or "")
-                if fwd_from_chat:
-                    fwd_text += " " + str(getattr(fwd_from_chat, "username", "") or "")
-                    fwd_text += " " + str(getattr(fwd_from_chat, "title", "") or "")
-                if not _antispam_matches_exceptions(fwd_text, exceptions):
-                    _antispam_apply_punishment(chat_id, user, "forwarding", sec_fwd, msg_id)
-                    return
+                fwd_types = sec_fwd.get("types") or {}
+                if _should_block_by_type(fwd_types, src_type):
+                    fwd_text = combined_text
+                    if fwd_from:
+                        fwd_text += " " + str(getattr(fwd_from, "username", "") or "")
+                    if fwd_from_chat:
+                        fwd_text += " " + str(getattr(fwd_from_chat, "username", "") or "")
+                        fwd_text += " " + str(getattr(fwd_from_chat, "title", "") or "")
+                    if not _antispam_matches_exceptions(fwd_text, exceptions):
+                        _antispam_apply_punishment(chat_id, user, "forwarding", sec_fwd, msg_id)
+                        return
 
     # ── quoting ──
     sec_qt = _antispam_get_section(chat_id, "quoting")
@@ -1704,38 +1744,47 @@ def _antispam_runtime_check(m: types.Message) -> None:
             getattr(m, "quote", None)
         )
         if is_quote:
-            # Determine quote source type from reply_to_message
+            # Same-group exception: if the replied-to message was sent by the same
+            # group (anonymous admin post) or by a regular user within this group,
+            # the citation is internal and must not trigger punishment.
             if reply_msg:
-                sender_chat = getattr(reply_msg, "sender_chat", None)
-                reply_from = getattr(reply_msg, "from_user", None)
-                if sender_chat:
-                    sc_type = getattr(sender_chat, "type", "") or ""
+                replied_sender_chat = getattr(reply_msg, "sender_chat", None)
+                replied_sender_chat_id = getattr(replied_sender_chat, "id", None) if replied_sender_chat else None
+                if replied_sender_chat_id is None or replied_sender_chat_id == chat_id:
+                    # Regular user reply (sender_chat is None) or anonymous post
+                    # from the same group → always exempt
+                    pass
+                else:
+                    # Determine quote source type from reply_to_message
+                    sc_type = getattr(replied_sender_chat, "type", "") or ""
                     if sc_type == "channel":
                         src_type = "channels"
                     elif sc_type in ("group", "supergroup"):
                         src_type = "groups"
                     else:
                         src_type = "users"
-                elif reply_from:
-                    src_type = "bots" if getattr(reply_from, "is_bot", False) else "users"
-                else:
-                    src_type = "users"
-            else:
-                src_type = "users"
 
-            qt_types = sec_qt.get("types") or {}
-            if _should_block_by_type(qt_types, src_type):
-                if not _antispam_matches_exceptions(combined_text, exceptions):
-                    _antispam_apply_punishment(chat_id, user, "quoting", sec_qt, msg_id)
-                    return
+                    qt_types = sec_qt.get("types") or {}
+                    if _should_block_by_type(qt_types, src_type):
+                        if not _antispam_matches_exceptions(combined_text, exceptions):
+                            _antispam_apply_punishment(chat_id, user, "quoting", sec_qt, msg_id)
+                            return
+            else:
+                # m.quote is set without a reply_to_message — treat as user/same-group
+                pass
 
     # ── all_links ──
     sec_al = _antispam_get_section(chat_id, "all_links")
     if sec_al["enabled"]:
-        if _ALL_LINKS_RE.search(combined_text) or entity_urls:
-            if not _antispam_matches_exceptions(combined_text, exceptions):
-                _antispam_apply_punishment(chat_id, user, "all_links", sec_al, msg_id)
-                return
+        all_urls_found = _ALL_LINKS_RE.findall(combined_text) + (entity_urls or [])
+        if all_urls_found:
+            # Internal-link exception: skip if every URL is an internal group message link
+            if not all(
+                _is_internal_group_link(u, chat_id) for u in all_urls_found
+            ):
+                if not _antispam_matches_exceptions(combined_text, exceptions):
+                    _antispam_apply_punishment(chat_id, user, "all_links", sec_al, msg_id)
+                    return
 
 
 _ANTISPAM_CONTENT_TYPES = [

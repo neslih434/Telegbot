@@ -2133,9 +2133,9 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
         pass
 
     can_manage_roles = bool(viewer_user and _user_can_edit_now(viewer_user, chat_id))
-    btn_roles = InlineKeyboardButton("Права ролей", callback_data=f"st_main:{chat_id}:roles")
+    btn_roles = InlineKeyboardButton("Управление должностями", callback_data=f"st_main:{chat_id}:roles")
     try:
-        btn_roles.icon_custom_emoji_id = str(EMOJI_ADMIN_RIGHTS_ID)
+        btn_roles.icon_custom_emoji_id = "5429337466760864755"
     except Exception:
         pass
 
@@ -3059,7 +3059,7 @@ def cb_settings_main(c: types.CallbackQuery):
                 bot.answer_callback_query(c.id, "Недостаточно прав для настройки ролей.", show_alert=True)
                 return
 
-            emoji_chat = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CHAT_ID}">📋</tg-emoji>'
+            emoji_chat = f'<tg-emoji emoji-id="5341715473882955310">📋</tg-emoji>'
             emoji_choose = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CHOOSE_RANK_ID}">🔽</tg-emoji>'
             try:
                 chat_obj = bot.get_chat(chat_id)
