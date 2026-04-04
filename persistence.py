@@ -9,6 +9,7 @@ import time
 import threading
 import atexit
 import queue
+from collections import Counter
 
 from config import (
     # stdlib re-exports нужны для typing внутри этого модуля
@@ -39,6 +40,7 @@ _MSG_EVENTS_BUFFER: list[tuple[int, int, int, Any]] = []
 _MSG_EVENTS_BUFFER_LOCK = threading.Lock()
 _STATS_CLEANUP_LAST_TS: float = 0.0
 _STATS_CLEANUP_INTERVAL: float = 86400.0  # run cleanup at most once per day
+MSG_EVENTS_RETENTION_DAYS: int = 31       # keep events for this many days
 
 
 def _stats_increment(key: str, delta: int = 1) -> None:
@@ -334,7 +336,6 @@ def _flush_msg_events() -> None:
         batch = list(_MSG_EVENTS_BUFFER)
         del _MSG_EVENTS_BUFFER[:]
     try:
-        from collections import Counter
         counts: dict[tuple[int, int], int] = Counter(
             (r[0], r[1]) for r in batch
         )
@@ -373,7 +374,7 @@ def _cleanup_old_msg_events() -> None:
         return
     _STATS_CLEANUP_LAST_TS = now
     try:
-        cutoff = int(time.time()) - 31 * 86400
+        cutoff = int(time.time()) - MSG_EVENTS_RETENTION_DAYS * 86400
         conn = _db_connect()
         with _DB_LOCK:
             conn.execute("DELETE FROM msg_events WHERE ts < ?", (cutoff,))
