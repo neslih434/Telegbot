@@ -697,7 +697,8 @@ def _render_stats_image(
     max_val   = top_n[0][1] if top_n else 1
     max_scale = max(max_val, 1)
     # Pick a nice step so we get ~4-6 gridlines
-    for step in (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000):
+    for step in (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000,
+                 10000, 20000, 50000, 100000):
         if max_scale / step <= 6:
             scale_step = step
             break
@@ -755,7 +756,7 @@ def _render_stats_image(
             bbox  = draw.textbbox((0, 0), label, font=fnt_label)
             if (bbox[2] - bbox[0]) <= max_pill_tw or len(trunc) <= 0:
                 break
-            trunc = trunc[:-2] + "…"
+            trunc = trunc[:-1] + "…"
 
         bbox = draw.textbbox((0, 0), label, font=fnt_label)
         tw_l = bbox[2] - bbox[0]
