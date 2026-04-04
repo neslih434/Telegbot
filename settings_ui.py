@@ -2154,6 +2154,12 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
     except Exception:
         pass
 
+    btn_banwords = InlineKeyboardButton("Запрещённые слова", callback_data=f"stbw:open:{chat_id}")
+    try:
+        btn_banwords.icon_custom_emoji_id = "5229113891081956317"
+    except Exception:
+        pass
+
     can_manage_roles = bool(viewer_user and _user_can_edit_now(viewer_user, chat_id))
     btn_roles = InlineKeyboardButton("Права ролей", callback_data=f"st_main:{chat_id}:roles")
     try:
@@ -2165,10 +2171,11 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
     kb.add(btn_rules, btn_cleanup)
     if can_manage_roles:
         kb.add(btn_warns, btn_antiflood)
-        kb.add(btn_antispam, btn_roles)
+        kb.add(btn_antispam, btn_banwords)
+        kb.add(btn_roles)
     else:
         kb.add(btn_warns, btn_antiflood)
-        kb.add(btn_antispam)
+        kb.add(btn_antispam, btn_banwords)
 
     btn_close = InlineKeyboardButton("Закрыть", callback_data=f"st_close:{chat_id}")
     try:
@@ -4100,6 +4107,14 @@ def on_settings_private_input(m: types.Message):
     try:
         from antispam import handle_antispam_private_pending
         if handle_antispam_private_pending(m):
+            return
+    except ImportError:
+        pass
+
+    # Delegate to banned_words module for its pending states
+    try:
+        from banned_words import handle_banwords_private_pending
+        if handle_banwords_private_pending(m):
             return
     except ImportError:
         pass
