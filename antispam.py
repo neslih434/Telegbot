@@ -100,10 +100,11 @@ def _is_internal_group_link(url: str, chat_id: int) -> bool:
         return False
     peer_id_str = m.group(1)
     chat_id_str = str(chat_id)
-    # Convert chat_id to peer_id by removing leading "-100"
+    # Convert chat_id to peer_id by removing leading "-100" (supergroup/channel prefix)
     if chat_id_str.startswith("-100"):
         return peer_id_str == chat_id_str[4:]
-    return peer_id_str == chat_id_str.lstrip("-")
+    # For other negative IDs just compare the absolute value
+    return peer_id_str == str(abs(chat_id))
 
 # Punishment type labels
 _PUNISH_LABELS: dict[str, str] = {
@@ -1678,12 +1679,13 @@ def _antispam_runtime_check(m: types.Message) -> None:
         if not violation and sec_tg.get("check_user_usernames") and _TG_USERNAME_RE.search(combined_text):
             violation = True
         if violation:
-            # Internal-link exception: if ALL detected t.me URLs are links to
-            # messages within the same group, do not punish.
-            all_tg_urls = _TG_URL_RE.findall(combined_text) + entity_urls
-            tg_urls_in_text = [u for u in all_tg_urls if _TG_URL_RE.search(u)]
-            if tg_urls_in_text and all(
-                _is_internal_group_link(u, chat_id) for u in tg_urls_in_text
+            # Internal-link exception: if ALL detected t.me URLs (from text and
+            # entity links) are links to messages within the same group, do not punish.
+            tg_urls_from_text = _TG_URL_RE.findall(combined_text)
+            tg_urls_from_entities = [u for u in entity_urls if _TG_URL_RE.search(u)]
+            tg_urls_found = tg_urls_from_text + tg_urls_from_entities
+            if tg_urls_found and all(
+                _is_internal_group_link(u, chat_id) for u in tg_urls_found
             ):
                 violation = False
         if violation and not _antispam_matches_exceptions(combined_text, exceptions):
