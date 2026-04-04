@@ -747,10 +747,12 @@ def cmd_ping(m: types.Message):
 
     t_edit_start = time.perf_counter()
     try:
+        # Используем текст, отличный от исходного, чтобы Telegram не отклонил
+        # правку как «сообщение не изменено» и замер задержки был корректным.
         bot.edit_message_text(
             chat_id=sent.chat.id,
             message_id=sent.message_id,
-            text=f'<tg-emoji emoji-id="{EMOJI_PING_ID}">🏓</tg-emoji> Проверка пинга…',
+            text=f'<tg-emoji emoji-id="{EMOJI_PING_ID}">🏓</tg-emoji> Измерение…',
             parse_mode='HTML'
         )
     except Exception:

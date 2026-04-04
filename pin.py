@@ -48,13 +48,14 @@ async def _mt_delete_last_pin_service_message(chat_id: int):
     """
     Удаляет последнее сервисное сообщение о закреплении в данном чате.
     Для супергрупп используем PeerChannel(chat_id), для обычных групп — PeerChat(-chat_id).
-    Добавляем небольшую задержку, чтобы сервисное сообщение успело прилететь. [file:184]
+    Используем минимальную задержку (0.05 с) вместо 0.3 с — Telegram создаёт
+    service-message практически мгновенно после закрепления.
     """
     try:
         await tg_client.start()
 
-        # небольшая задержка, чтобы Telegram успел создать service-message о пине
-        await asyncio.sleep(0.3)
+        # минимальная задержка: Telegram создаёт service-message сразу после пина
+        await asyncio.sleep(0.05)
 
         # определяем peer
         if str(chat_id).startswith("-100"):
@@ -67,29 +68,32 @@ async def _mt_delete_last_pin_service_message(chat_id: int):
             # ЛС/канал по прямому id (на всякий случай)
             peer = chat_id
 
-        # ищем самое верхнее сервисное сообщение о пине
-        async for msg in tg_client.iter_messages(peer, limit=30):
-            if isinstance(msg, MessageService) and getattr(msg, "action", None):
-                if msg.action.__class__.__name__ == "MessageActionPinMessage":
-                    await msg.delete()
-                    break
+        # ищем самое верхнее сервисное сообщение о пине (с таймаутом 5 с)
+        async def _search_and_delete():
+            async for msg in tg_client.iter_messages(peer, limit=30):
+                if isinstance(msg, MessageService) and getattr(msg, "action", None):
+                    if msg.action.__class__.__name__ == "MessageActionPinMessage":
+                        await msg.delete()
+                        break
+
+        await asyncio.wait_for(_search_and_delete(), timeout=5.0)
+    except asyncio.TimeoutError:
+        print(f"[Telethon] Таймаут поиска сервисного сообщения о пине в чате {chat_id}")
     except Exception as e:
         print(f"[Telethon] Не удалось удалить сервисное сообщение о пине: {e}")
 
 
 def _try_delete_last_bot_service_pin(chat_id: int):
     """
-    Обёртка для запуска удаления сервисного сообщения о пине.
+    Запускает удаление сервисного сообщения о пине полностью в фоне,
+    не блокируя вызывающий поток. Всегда создаёт отдельный поток с
+    собственным event loop, чтобы не мешать основному потоку бота.
     """
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        asyncio.create_task(_mt_delete_last_pin_service_message(chat_id))
-    else:
+    def _run_in_thread():
         asyncio.run(_mt_delete_last_pin_service_message(chat_id))
+
+    t = threading.Thread(target=_run_in_thread, daemon=True)
+    t.start()
 
 
 # ==== ЗАКРЕПЛЕНИЕ / ОТКРЕПЛЕНИЕ СООБЩЕНИЙ ==== 
