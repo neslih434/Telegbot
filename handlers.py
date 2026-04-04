@@ -337,9 +337,10 @@ def cmd_group_stats_manual(m: types.Message):
 
     # Антиспам: лимит per-user (60 с) и per-chat (30 с)
     if m.from_user:
-        wait_u = cooldown_hit('user', int(m.from_user.id), 'group_stat', 60)
+        uid_int = int(m.from_user.id)
+        wait_u = cooldown_hit('user', uid_int, 'group_stat', 60)
         if wait_u > 0:
-            return reply_cooldown_message(m, wait_u, scope='user', bucket=int(m.from_user.id), action='group_stat')
+            return reply_cooldown_message(m, wait_u, scope='user', bucket=uid_int, action='group_stat')
 
     wait_seconds = cooldown_hit('chat', int(m.chat.id), 'group_stat', 30)
     if wait_seconds > 0:
@@ -396,9 +397,10 @@ def _stats_limited_guard(m: types.Message, period: str, chart_type: str) -> None
 
     # Антиспам: лимит per-user (60 с) и per-chat (30 с)
     if m.from_user:
-        wait_u = cooldown_hit('user', int(m.from_user.id), 'group_stat', 60)
+        uid_int = int(m.from_user.id)
+        wait_u = cooldown_hit('user', uid_int, 'group_stat', 60)
         if wait_u > 0:
-            return reply_cooldown_message(m, wait_u, scope='user', bucket=int(m.from_user.id), action='group_stat')
+            return reply_cooldown_message(m, wait_u, scope='user', bucket=uid_int, action='group_stat')
 
     wait_seconds = cooldown_hit('chat', int(m.chat.id), 'group_stat', 30)
     if wait_seconds > 0:
@@ -523,7 +525,9 @@ def cb_group_stats_pagination(call: types.CallbackQuery):
 
 _IMG_TASK_QUEUE: _queue.Queue = _queue.Queue()
 
-# ─── Общий визуальный стиль ──────────────────────────────────────────────────
+# Максимальная длина отображаемого имени (в картинке и в подписи)
+_STATS_NAME_MAXLEN = 20
+
 _S_SCALE  = 2                       # коэффициент суперсэмплинга
 _S_BG     = (22,  27,  34)          # фон
 _S_FG     = (229, 229, 229)         # основной текст
@@ -693,7 +697,7 @@ def _render_stats_image(
 
         # Name [ID]
         id_tag = f"[{user_id}]"
-        label  = f"{name[:24]}  {id_tag}"
+        label  = f"{name[:_STATS_NAME_MAXLEN]}  {id_tag}"
         draw.text((pad + 40 * S, y + 14 * S), label, font=fnt_name, fill=_S_FG)
 
         # Count (right of bar area)
@@ -819,7 +823,7 @@ def _build_stats_caption(
     lines: list[str] = []
     for i, (user_id, count) in enumerate(rows[:max_entries]):
         name = users_map.get(user_id, f"ID {user_id}")
-        line = f"{i + 1}. {name[:20]} [{user_id}] — {count}\n"
+        line = f"{i + 1}. {name[:_STATS_NAME_MAXLEN]} [{user_id}] — {count}\n"
         if budget - len(line) < 0:
             break
         lines.append(line)
