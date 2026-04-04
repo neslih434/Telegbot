@@ -94,8 +94,10 @@ from persistence import (
     get_tg_cache_stats,
     GLOBAL_LAST_SEEN_UPDATE_SECONDS,
     tg_get_user_by_id_cached,
+    # message-event stats
+    buffer_msg_event,
 )
-from config import get_user_id_by_username_mtproto
+from config import get_user_id_by_username_mtproto, _tg_client_status
 
 # ==== RAW-ХЕЛПЕРЫ ====
 
@@ -200,7 +202,9 @@ def _kb_to_dict(keyboard):
     return keyboard
 
 
-def raw_send_with_inline_keyboard(chat_id: int, text: str, keyboard):
+def raw_send_with_inline_keyboard(
+    chat_id: int, text: str, keyboard, reply_to_message_id: int | None = None
+):
     kb_dict = _kb_to_dict(keyboard)
     payload = {
         "chat_id": chat_id,
@@ -210,6 +214,8 @@ def raw_send_with_inline_keyboard(chat_id: int, text: str, keyboard):
     }
     if kb_dict is not None:
         payload["reply_markup"] = json.dumps(kb_dict, ensure_ascii=False)
+    if reply_to_message_id:
+        payload["reply_to_message_id"] = reply_to_message_id
     return raw_request("sendMessage", payload)
 
 
@@ -404,6 +410,9 @@ def update_group_stats(message: types.Message):
     user_stats["last_msg_id"] = message.message_id
 
     save_group_stats()
+
+    # Buffer event for time-period statistics (batch-flushed every few seconds)
+    buffer_msg_event(chat.id, user.id, int(message.date), message.message_id)
 
 
 # ==== УПРАВЛЕНИЕ НЕПОДТВЕРЖДЕННЫМИ ГРУППАМИ ====
@@ -1736,6 +1745,18 @@ def deny_access(chat_id):
 def is_exact_stat(text: str) -> bool:
     return bool(text) and text.strip().lower() == 'статистика'
 
+def is_exact_stat_day(text: str) -> bool:
+    return bool(text) and text.strip().lower() == 'статистика день'
+
+def is_exact_stat_week(text: str) -> bool:
+    return bool(text) and text.strip().lower() == 'статистика неделя'
+
+def is_exact_stat_month(text: str) -> bool:
+    return bool(text) and text.strip().lower() == 'статистика месяц'
+
+def is_exact_stat_all(text: str) -> bool:
+    return bool(text) and text.strip().lower() == 'статистика вся'
+
 def text_starts_with_ci(text: str, prefix: str) -> bool:
     return bool(text) and text.strip().lower().startswith(prefix.lower())
 
@@ -2487,6 +2508,17 @@ def cmd_botstatus(m: types.Message):
     except Exception:
         process_ram = 'n/a'
 
+    # Telethon/MTProto status
+    try:
+        from config import tg_client as _tg_client
+        mt_connected = _tg_client.is_connected()
+    except Exception:
+        mt_connected = _tg_client_status.get("connected", False)
+    mt_icon = "✅" if mt_connected else "❌"
+    mt_last_use = int(_tg_client_status.get("last_use") or 0)
+    mt_last_use_h = datetime.fromtimestamp(mt_last_use).strftime('%d.%m.%Y %H:%M:%S') if mt_last_use > 0 else '-'
+    mt_last_err = _tg_client_status.get("last_error") or '-'
+
     text = (
         '<b>Состояние бота</b>\n'
         f"<b>Uptime:</b> <code>{get_uptime_text()}</code>\n"
@@ -2494,6 +2526,11 @@ def cmd_botstatus(m: types.Message):
         f"<b>Уникальных пользователей:</b> <code>{len(STATS.get('users') or set())}</code>\n"
         f"<b>Чатов runtime:</b> <code>{len(STATS.get('chats') or set())}</code>\n"
         f"<b>RAM процесса:</b> <code>{process_ram}</code>\n"
+        '\n'
+        '<b>Telethon / MTProto</b>\n'
+        f"{mt_icon} <b>Соединение:</b> <code>{'подключён' if mt_connected else 'отключён'}</code>\n"
+        f"<b>Последнее использование:</b> <code>{mt_last_use_h}</code>\n"
+        f"<b>Последняя ошибка:</b> <code>{_html.escape(mt_last_err)}</code>\n"
         '\n'
         '<b>TG кэш</b>\n'
         f"<b>Member cache:</b> <code>{cache_stats['member_size']}</code>\n"
