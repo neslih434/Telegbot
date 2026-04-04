@@ -2038,7 +2038,7 @@ def cb_rolesettings_chat(c: types.CallbackQuery):
     if not _user_can_edit_now(c.from_user, chat_id):
         return
 
-    emoji_chat = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CHAT_ID}">📋</tg-emoji>'
+    emoji_chat = f'<tg-emoji emoji-id="5341715473882955310">📋</tg-emoji>'
     emoji_choose = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CHOOSE_RANK_ID}">🔽</tg-emoji>'
 
     try:
@@ -2178,7 +2178,7 @@ def cb_rolesettings_back_chat(c: types.CallbackQuery):
     in_pm = (c.message.chat.type == 'private')
     kb = _build_ranks_keyboard(chat_id, for_pm=in_pm, back_callback=f"st_back_main:{chat_id}" if in_pm else None)
 
-    emoji_chat = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CHAT_ID}">📋</tg-emoji>'
+    emoji_chat = f'<tg-emoji emoji-id="5341715473882955310">📋</tg-emoji>'
     emoji_choose = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CHOOSE_RANK_ID}">🔽</tg-emoji>'
 
     try:
@@ -3513,6 +3513,8 @@ def _build_start_commands_text(user: telebot.types.User) -> str:
             "<b>Команды разработчика</b>",
             f"• /log, /broadcast ({legend_dev_only} | {legend_pm_only})",
             f"• Новые сообщения ({legend_dev_only} | {legend_pm_only})",
+            f"• /botstatus ({legend_dev_only} | {legend_pm_only})",
+            f"• /dbstatus, /sqlite_status, /dbmigrate, /sqlite_migrate ({legend_dev_only} | {legend_pm_only})",
             f"• /testuser, /dbg_users, /dbg_global_users, /migrate_users_to_global ({legend_dev_only} | {legend_pm_only})",
         ])
 
@@ -10992,9 +10994,9 @@ def _build_settings_main_keyboard(chat_id: int, viewer_user: types.User | None =
         pass
 
     can_manage_roles = bool(viewer_user and _user_can_edit_now(viewer_user, chat_id))
-    btn_roles = InlineKeyboardButton("Права ролей", callback_data=f"st_main:{chat_id}:roles")
+    btn_roles = InlineKeyboardButton("Управление должностями", callback_data=f"st_main:{chat_id}:roles")
     try:
-        btn_roles.icon_custom_emoji_id = str(EMOJI_ADMIN_RIGHTS_ID)
+        btn_roles.icon_custom_emoji_id = "5429337466760864755"
     except Exception:
         pass
 
@@ -11699,7 +11701,7 @@ def cb_settings_main(c: types.CallbackQuery):
                 bot.answer_callback_query(c.id, "Недостаточно прав для настройки ролей.", show_alert=True)
                 return
 
-            emoji_chat = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CHAT_ID}">📋</tg-emoji>'
+            emoji_chat = f'<tg-emoji emoji-id="5341715473882955310">📋</tg-emoji>'
             emoji_choose = f'<tg-emoji emoji-id="{EMOJI_ROLE_SETTINGS_CHOOSE_RANK_ID}">🔽</tg-emoji>'
             try:
                 chat_obj = bot.get_chat(chat_id)

@@ -366,6 +366,8 @@ def _build_start_commands_text(user: telebot.types.User) -> str:
             "<b>Команды разработчика</b>",
             f"• /log, /broadcast ({legend_dev_only} | {legend_pm_only})",
             f"• Новые сообщения ({legend_dev_only} | {legend_pm_only})",
+            f"• /botstatus ({legend_dev_only} | {legend_pm_only})",
+            f"• /dbstatus, /sqlite_status, /dbmigrate, /sqlite_migrate ({legend_dev_only} | {legend_pm_only})",
             f"• /testuser, /dbg_users, /dbg_global_users, /migrate_users_to_global ({legend_dev_only} | {legend_pm_only})",
         ])
 
