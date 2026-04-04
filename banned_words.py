@@ -74,6 +74,9 @@ _CHECK_MODE_DESC: dict[str, str] = {
     "AGGRESSIVE":  "Ловит повторы букв (мааааат) и мусорные символы.",
 }
 
+# Режимы, требующие предупреждения об экспериментальном характере
+_EXPERIMENTAL_MODES = frozenset({"SPLIT_PROOF", "CONFUSABLES", "AGGRESSIVE"})
+
 _PUNISH_LABELS: dict[str, str] = {
     "warn": "Предупреждение",
     "mute": "Ограничение",
@@ -88,6 +91,9 @@ MAX_TERM_DISPLAY_LEN = 35   # Длина для отображения в кно
 
 _EMOJI_ADD_ID = "5226945370684140473"
 _EMOJI_DEL_ID = "5229113891081956317"
+
+# Ссылка на документацию (HTML)
+_DOC_LINK = '<i><a href="https://telegra.ph/Filtr-Zapreshchennye-slova-04-04">Документация</a></i>'
 
 _VALID_PAGES = frozenset({
     "main", "mode", "punish", "duration",
@@ -215,20 +221,23 @@ def is_wildcard_rule(text: str) -> bool:
 def validate_wildcard_rule(text: str) -> tuple[bool, str]:
     """
     Возвращает (is_valid, error_msg).
-    У каждого маркера обязательно должен быть непустой текст с обеих сторон;
-    пробелы непосредственно у маркера не допускаются.
+    Маркеры (*) / (+) могут быть в начале или конце строки.
+    Правило должно содержать хотя бы один непустой текстовый фрагмент.
+    Пробелы непосредственно у маркера не допускаются.
     """
     parts = _WILDCARD_MARKER_RE.split(text)
     if len(parts) < 2:
         return True, ""  # нет маркеров — всегда ок
 
+    # Хотя бы одна часть должна содержать непустой текст
+    if all(not p.strip() for p in parts):
+        return (
+            False,
+            "Правило должно содержать текст помимо маркеров <code>(*)</code> / <code>(+)</code>."
+        )
+
+    # Пробел непосредственно перед маркером (конец части) или после (начало части)
     for i, part in enumerate(parts):
-        if not part or not part.strip():
-            return (
-                False,
-                "У маркера <code>(*)</code> или <code>(+)</code> нет текста с одной из сторон."
-            )
-        # Пробел непосредственно перед маркером (конец части) или после (начало части)
         if i < len(parts) - 1 and part.endswith(' '):
             return False, "Пробел рядом с маркером не допускается."
         if i > 0 and part.startswith(' '):
@@ -411,16 +420,17 @@ def _bw_save_allow_terms(chat_id: int, terms: list) -> None:
     _mod_save()
 
 
-def _bw_add_terms(chat_id: int, new_terms: list[dict]) -> tuple[int, int, list[str]]:
+def _bw_add_terms(chat_id: int, new_terms: list[dict]) -> tuple[int, int, list[str], list[str]]:
     """
     Добавляет новые термины в список.
-    Возвращает (добавлено, пропущено_дублей, список_ошибок_валидации).
+    Возвращает (добавлено, пропущено_дублей, список_ошибок_валидации, список_добавленных_текстов).
     """
     existing = _bw_get_terms(chat_id)
     existing_normalized = {t['normalized'] for t in existing}
     added = 0
     skipped = 0
     errors: list[str] = []
+    added_texts: list[str] = []
     for term in new_terms:
         t_text = term.get('text', '')
         if len(t_text) > MAX_TERM_LEN:
@@ -441,20 +451,22 @@ def _bw_add_terms(chat_id: int, new_terms: list[dict]) -> tuple[int, int, list[s
         existing.append({'text': t_text, 'kind': term.get('kind', 'word'), 'normalized': normalized})
         existing_normalized.add(normalized)
         added += 1
+        added_texts.append(t_text)
     if added > 0:
         _bw_save_terms(chat_id, existing)
-    return added, skipped, errors
+    return added, skipped, errors, added_texts
 
 
-def _bw_del_terms(chat_id: int, query: str) -> tuple[int, list[str]]:
+def _bw_del_terms(chat_id: int, query: str) -> tuple[int, list[str], list[str]]:
     """
     Удаляет термины по точному или частичному совпадению.
-    Возвращает (удалено, список_не_найденных_строк).
+    Возвращает (удалено, список_не_найденных_строк, список_удалённых_текстов).
     """
     query_lines = [l.strip() for l in query.split('\n') if l.strip()]
     existing = _bw_get_terms(chat_id)
     not_found: list[str] = []
     deleted = 0
+    deleted_texts: list[str] = []
     for q in query_lines:
         q_norm = _base_normalize(q)
         idx = None
@@ -468,22 +480,24 @@ def _bw_del_terms(chat_id: int, query: str) -> tuple[int, list[str]]:
                     idx = i
                     break
         if idx is not None:
+            deleted_texts.append(existing[idx].get('text', q))
             existing.pop(idx)
             deleted += 1
         else:
             not_found.append(q)
     if deleted > 0:
         _bw_save_terms(chat_id, existing)
-    return deleted, not_found
+    return deleted, not_found, deleted_texts
 
 
-def _bw_add_allow_terms(chat_id: int, new_terms: list[dict]) -> tuple[int, int, list[str]]:
-    """Добавляет термины в allowlist. Возвращает (добавлено, дублей, ошибок)."""
+def _bw_add_allow_terms(chat_id: int, new_terms: list[dict]) -> tuple[int, int, list[str], list[str]]:
+    """Добавляет термины в allowlist. Возвращает (добавлено, дублей, ошибок, добавленных_текстов)."""
     existing = _bw_get_allow_terms(chat_id)
     existing_normalized = {t['normalized'] for t in existing}
     added = 0
     skipped = 0
     errors: list[str] = []
+    added_texts: list[str] = []
     for term in new_terms:
         t_text = term.get('text', '')
         if len(t_text) > MAX_TERM_LEN:
@@ -499,17 +513,19 @@ def _bw_add_allow_terms(chat_id: int, new_terms: list[dict]) -> tuple[int, int, 
         existing.append({'text': t_text, 'kind': term.get('kind', 'word'), 'normalized': normalized})
         existing_normalized.add(normalized)
         added += 1
+        added_texts.append(t_text)
     if added > 0:
         _bw_save_allow_terms(chat_id, existing)
-    return added, skipped, errors
+    return added, skipped, errors, added_texts
 
 
-def _bw_del_allow_terms(chat_id: int, query: str) -> tuple[int, list[str]]:
-    """Удаляет термины из allowlist. Возвращает (удалено, не_найдено)."""
+def _bw_del_allow_terms(chat_id: int, query: str) -> tuple[int, list[str], list[str]]:
+    """Удаляет термины из allowlist. Возвращает (удалено, не_найдено, удалённых_текстов)."""
     query_lines = [l.strip() for l in query.split('\n') if l.strip()]
     existing = _bw_get_allow_terms(chat_id)
     not_found: list[str] = []
     deleted = 0
+    deleted_texts: list[str] = []
     for q in query_lines:
         q_norm = _base_normalize(q)
         idx = None
@@ -523,13 +539,14 @@ def _bw_del_allow_terms(chat_id: int, query: str) -> tuple[int, list[str]]:
                     idx = i
                     break
         if idx is not None:
+            deleted_texts.append(existing[idx].get('text', q))
             existing.pop(idx)
             deleted += 1
         else:
             not_found.append(q)
     if deleted > 0:
         _bw_save_allow_terms(chat_id, existing)
-    return deleted, not_found
+    return deleted, not_found, deleted_texts
 
 
 # ─────────────────────────────────────────────
@@ -605,6 +622,7 @@ def _render_bw_main(chat_id: int, page: str = "main") -> str:
     allow_count = len(allow_terms)
 
     text = (
+        f"{_DOC_LINK}\n\n"
         f"{emoji_s} <b>Запрещённые слова</b>\n\n"
         f"<b>Статус:</b> {status_txt}\n"
         f"<b>Режим проверки:</b> <code>{_html.escape(mode_label)}</code>\n"
@@ -616,7 +634,6 @@ def _render_bw_main(chat_id: int, page: str = "main") -> str:
     )
 
     hints: dict[str, str] = {
-        "mode":         "\n\n<i>Выберите режим проверки.</i>",
         "punish":       "\n\n<i>Выберите тип наказания за нарушение.</i>",
         "duration":     (
             "\n\nДля выбранного типа наказания длительность не используется."
@@ -634,6 +651,34 @@ def _render_bw_main(chat_id: int, page: str = "main") -> str:
     return text
 
 
+def _render_bw_mode_screen(chat_id: int, viewed_mode: str = "") -> str:
+    """Текст для отдельного экрана «Режимы проверки»."""
+    settings = _bw_get_settings(chat_id)
+    current_mode = settings["check_mode"]
+    current_label = _CHECK_MODE_LABELS.get(current_mode, current_mode)
+
+    text = (
+        f"{_DOC_LINK}\n\n"
+        f"<b>Режимы проверки</b>\n\n"
+        f"<b>Описание:</b> Режим проверки определяет, как бот проверяет сообщение на наличие "
+        f"запрещённых слов.\n"
+        f"<b>Выбранный режим:</b> <code>{_html.escape(current_label)}</code>"
+    )
+
+    if viewed_mode and viewed_mode in _EXPERIMENTAL_MODES:
+        if viewed_mode != current_mode:
+            text += (
+                "\n\n⚠️ Этот режим является экспериментальным и его работа может вызывать "
+                "ложные срабатывания. Вы точно хотите активировать его?"
+            )
+        else:
+            text += (
+                "\n\n⚠️ Внимание: этот режим является экспериментальным."
+            )
+
+    return text
+
+
 # ─────────────────────────────────────────────
 # Keyboards
 # ─────────────────────────────────────────────
@@ -648,6 +693,59 @@ def _back_btn(cb: str) -> InlineKeyboardButton:
     return b
 
 
+def _build_bw_mode_keyboard(chat_id: int, viewed_mode: str = "") -> InlineKeyboardMarkup:
+    """Клавиатура для отдельного экрана «Режимы проверки»."""
+    settings = _bw_get_settings(chat_id)
+    current_mode = settings["check_mode"]
+
+    kb = InlineKeyboardMarkup(row_width=2)
+    inv = "\u2063"
+
+    # Кнопки режимов: [Точный][Нормализованный] / [Анти-разбивка][Анти-подмена] / [Агрессивный]
+    mode_rows = [
+        ["EXACT", "NORMALIZED"],
+        ["SPLIT_PROOF", "CONFUSABLES"],
+        ["AGGRESSIVE"],
+    ]
+
+    for row in mode_rows:
+        btns = []
+        for m_key in row:
+            m_label = _CHECK_MODE_LABELS[m_key]
+            is_viewed = (viewed_mode == m_key)
+            title = f"»{m_label}«" if is_viewed else m_label
+            b = InlineKeyboardButton(title, callback_data=f"stbw:mode_view:{chat_id}:{m_key}")
+            try:
+                if is_viewed:
+                    b.style = "primary"
+            except Exception:
+                pass
+            btns.append(b)
+        kb.row(*btns)
+
+        # Если в этом ряду есть выбранный (просматриваемый) режим → ВКЛ/ВЫКЛ toggle
+        if viewed_mode in row:
+            is_on = (current_mode == viewed_mode)
+            on_s, off_s = ("success", "danger") if is_on else ("danger", "success")
+            b_on = InlineKeyboardButton(
+                inv, callback_data=f"stbw:mode_enable:{chat_id}:{viewed_mode}"
+            )
+            b_off = InlineKeyboardButton(
+                inv, callback_data=f"stbw:mode_disable:{chat_id}:{viewed_mode}"
+            )
+            try:
+                b_on.icon_custom_emoji_id = str(CLEANUP_ICON_ENABLE_ID)
+                b_off.icon_custom_emoji_id = str(CLEANUP_ICON_DISABLE_ID)
+                b_on.style = on_s
+                b_off.style = off_s
+            except Exception:
+                pass
+            kb.row(b_on, b_off)
+
+    kb.add(_back_btn(f"stbw:mode_back:{chat_id}"))
+    return kb
+
+
 def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup:
     settings = _bw_get_settings(chat_id)
     enabled = settings["enabled"]
@@ -656,9 +754,8 @@ def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup
     ptype = settings["punish"]["type"]
 
     kb = InlineKeyboardMarkup(row_width=2)
-    inv = "\u2063"
 
-    # ── Статус ──
+    # ── 1) Статус ──
     b_status = InlineKeyboardButton(
         "Статус",
         callback_data=f"stbw:statusset:{chat_id}:{0 if enabled else 1}",
@@ -669,7 +766,7 @@ def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup
         pass
     kb.add(b_status)
 
-    # ── Удаление сообщений ──
+    # ── 2) Удаление сообщений ──
     b_del = InlineKeyboardButton(
         "Удаление сообщений",
         callback_data=f"stbw:delset:{chat_id}:{0 if delete_messages else 1}",
@@ -680,33 +777,11 @@ def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup
         pass
     kb.add(b_del)
 
-    # ── Режим проверки (expandable) ──
-    mode_title = "»Режим проверки«" if page == "mode" else "Режим проверки"
-    b_mode = InlineKeyboardButton(mode_title, callback_data=f"stbw:page:{chat_id}:mode")
-    try:
-        if page == "mode":
-            b_mode.style = "primary"
-    except Exception:
-        pass
+    # ── 3) Режим проверки → открывает отдельный экран ──
+    b_mode = InlineKeyboardButton("Режим проверки", callback_data=f"stbw:page:{chat_id}:mode")
     kb.add(b_mode)
 
-    if page == "mode":
-        mode_btns: list[InlineKeyboardButton] = []
-        for m_key in _CHECK_MODES:
-            m_label = _CHECK_MODE_LABELS[m_key]
-            b = InlineKeyboardButton(m_label, callback_data=f"stbw:modesel:{chat_id}:{m_key}")
-            try:
-                if mode == m_key:
-                    b.style = "primary"
-            except Exception:
-                pass
-            mode_btns.append(b)
-        # 2 в ряду
-        for i in range(0, len(mode_btns), 2):
-            row = mode_btns[i:i + 2]
-            kb.row(*row)
-
-    # ── Наказание и Длительность в одном ряду (expandable) ──
+    # ── 4) Наказание и Длительность в одном ряду (expandable) ──
     p_title = "»Наказание«" if page == "punish" else "Наказание"
     d_title = "»Длительность«" if page == "duration" else "Длительность"
     b_punish = InlineKeyboardButton(p_title, callback_data=f"stbw:page:{chat_id}:punish")
@@ -747,7 +822,7 @@ def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup
             pass
         kb.add(b_set)
 
-    # ── Список запрещённых (expandable) ──
+    # ── 5) Список запрещённых (expandable) ──
     terms_count = len(_bw_get_terms(chat_id))
     terms_title = "»Список запрещённых«" if page in ("terms", "terms_list", "terms_delete") else "Список запрещённых"
     b_terms = InlineKeyboardButton(terms_title, callback_data=f"stbw:page:{chat_id}:terms")
@@ -759,22 +834,20 @@ def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup
     kb.add(b_terms)
 
     if page == "terms":
-        if terms_count < MAX_TERMS:
-            b_add = InlineKeyboardButton("Добавить", callback_data=f"stbw:term_add:{chat_id}")
-            try:
-                b_add.icon_custom_emoji_id = str(_EMOJI_ADD_ID)
-                b_add.style = "primary"
-            except Exception:
-                pass
-            kb.add(b_add)
-        b_list = InlineKeyboardButton("Показать список", callback_data=f"stbw:page:{chat_id}:terms_list")
+        b_list = InlineKeyboardButton("Список", callback_data=f"stbw:page:{chat_id}:terms_list")
+        b_add = InlineKeyboardButton("Добавить", callback_data=f"stbw:term_add:{chat_id}")
         b_del_p = InlineKeyboardButton("Удалить", callback_data=f"stbw:term_del_prompt:{chat_id}")
         try:
+            b_add.icon_custom_emoji_id = str(_EMOJI_ADD_ID)
+            b_add.style = "primary"
             b_del_p.icon_custom_emoji_id = str(_EMOJI_DEL_ID)
             b_del_p.style = "primary"
         except Exception:
             pass
-        kb.row(b_list, b_del_p)
+        if terms_count < MAX_TERMS:
+            kb.row(b_list, b_add, b_del_p)
+        else:
+            kb.row(b_list, b_del_p)
 
     if page == "terms_delete":
         terms = _bw_get_terms(chat_id)
@@ -792,9 +865,9 @@ def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup
         kb.add(_back_btn(f"stbw:page:{chat_id}:terms"))
         return kb
 
-    # ── Исключения (allowlist, expandable) ──
+    # ── 6) Управление исключениями (allowlist, expandable) ──
     allow_count = len(_bw_get_allow_terms(chat_id))
-    allow_title = "»Исключения«" if page in ("allow", "allow_list", "allow_delete") else "Исключения"
+    allow_title = "»Управление исключениями«" if page in ("allow", "allow_list", "allow_delete") else "Управление исключениями"
     b_allow = InlineKeyboardButton(allow_title, callback_data=f"stbw:page:{chat_id}:allow")
     try:
         if page in ("allow", "allow_list", "allow_delete"):
@@ -804,22 +877,20 @@ def _build_bw_keyboard(chat_id: int, page: str = "main") -> InlineKeyboardMarkup
     kb.add(b_allow)
 
     if page == "allow":
-        if allow_count < MAX_ALLOW_TERMS:
-            b_add_a = InlineKeyboardButton("Добавить исключение", callback_data=f"stbw:allow_add:{chat_id}")
-            try:
-                b_add_a.icon_custom_emoji_id = str(_EMOJI_ADD_ID)
-                b_add_a.style = "primary"
-            except Exception:
-                pass
-            kb.add(b_add_a)
-        b_list_a = InlineKeyboardButton("Показать исключения", callback_data=f"stbw:page:{chat_id}:allow_list")
-        b_del_a = InlineKeyboardButton("Удалить исключение", callback_data=f"stbw:allow_del_prompt:{chat_id}")
+        b_list_a = InlineKeyboardButton("Список", callback_data=f"stbw:page:{chat_id}:allow_list")
+        b_add_a = InlineKeyboardButton("Добавить", callback_data=f"stbw:allow_add:{chat_id}")
+        b_del_a = InlineKeyboardButton("Удалить", callback_data=f"stbw:allow_del_prompt:{chat_id}")
         try:
+            b_add_a.icon_custom_emoji_id = str(_EMOJI_ADD_ID)
+            b_add_a.style = "primary"
             b_del_a.icon_custom_emoji_id = str(_EMOJI_DEL_ID)
             b_del_a.style = "primary"
         except Exception:
             pass
-        kb.row(b_list_a, b_del_a)
+        if allow_count < MAX_ALLOW_TERMS:
+            kb.row(b_list_a, b_add_a, b_del_a)
+        else:
+            kb.row(b_list_a, b_del_a)
 
     if page == "allow_delete":
         allow_terms = _bw_get_allow_terms(chat_id)
@@ -969,10 +1040,77 @@ def cb_bw_settings(c: types.CallbackQuery) -> None:
             bot.answer_callback_query(c.id)
             return
 
+        # «Режим проверки» → удаляем текущее сообщение, открываем отдельный экран
+        if page == "mode":
+            try:
+                bot.delete_message(msg_chat.id, c.message.message_id)
+            except Exception:
+                pass
+            mode_text = _render_bw_mode_screen(chat_id)
+            mode_kb = _build_bw_mode_keyboard(chat_id)
+            bot.send_message(
+                msg_chat.id, mode_text, parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=mode_kb,
+            )
+            bot.answer_callback_query(c.id)
+            return
+
         text = _render_bw_main(chat_id, page)
         kb = _build_bw_keyboard(chat_id, page)
         if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
             bot.answer_callback_query(c.id, "Не удалось открыть страницу.", show_alert=True)
+            return
+        bot.answer_callback_query(c.id)
+        return
+
+    # ── mode screen: view mode (highlight + toggle) ──
+    if action == "mode_view":
+        viewed = (extra or "").strip().upper()
+        if viewed not in _CHECK_MODES:
+            viewed = ""
+        mode_text = _render_bw_mode_screen(chat_id, viewed)
+        mode_kb = _build_bw_mode_keyboard(chat_id, viewed)
+        if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, mode_text, mode_kb):
+            bot.answer_callback_query(c.id, "Не удалось обновить.", show_alert=True)
+            return
+        bot.answer_callback_query(c.id)
+        return
+
+    # ── mode screen: enable mode ──
+    if action == "mode_enable":
+        mode_key = (extra or "").strip().upper()
+        if mode_key in _CHECK_MODES:
+            s = _bw_get_settings(chat_id)
+            s["check_mode"] = mode_key
+            _bw_save_settings(chat_id, s)
+            _PATTERN_CACHE.clear()
+        else:
+            mode_key = ""
+        mode_text = _render_bw_mode_screen(chat_id, mode_key)
+        mode_kb = _build_bw_mode_keyboard(chat_id, mode_key)
+        if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, mode_text, mode_kb):
+            bot.answer_callback_query(c.id, "Не удалось обновить.", show_alert=True)
+            return
+        bot.answer_callback_query(c.id)
+        return
+
+    # ── mode screen: disable mode (remove highlight, keep current) ──
+    if action == "mode_disable":
+        mode_text = _render_bw_mode_screen(chat_id)
+        mode_kb = _build_bw_mode_keyboard(chat_id)
+        if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, mode_text, mode_kb):
+            bot.answer_callback_query(c.id, "Не удалось обновить.", show_alert=True)
+            return
+        bot.answer_callback_query(c.id)
+        return
+
+    # ── mode screen: back to main ──
+    if action == "mode_back":
+        text = _render_bw_main(chat_id)
+        kb = _build_bw_keyboard(chat_id)
+        if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
+            bot.answer_callback_query(c.id, "Не удалось вернуться.", show_alert=True)
             return
         bot.answer_callback_query(c.id)
         return
@@ -989,18 +1127,16 @@ def cb_bw_settings(c: types.CallbackQuery) -> None:
         s["delete_messages"] = (extra == "1")
         _bw_save_settings(chat_id, s)
 
-    # ── select check mode ──
+    # ── select check mode (legacy, kept for backwards compatibility) ──
     elif action == "modesel":
         mode = extra.strip().upper()
         if mode in _CHECK_MODES:
             s = _bw_get_settings(chat_id)
             s["check_mode"] = mode
             _bw_save_settings(chat_id, s)
-            # Сбрасываем кеш скомпилированных паттернов при смене режима
-            global _PATTERN_CACHE
-            _PATTERN_CACHE = {}
-        text = _render_bw_main(chat_id, "mode")
-        kb = _build_bw_keyboard(chat_id, "mode")
+            _PATTERN_CACHE.clear()
+        text = _render_bw_main(chat_id)
+        kb = _build_bw_keyboard(chat_id)
         if not _show_warn_settings_ui(msg_chat.id, c.message.message_id, text, kb):
             bot.answer_callback_query(c.id, "Не удалось обновить.", show_alert=True)
             return
@@ -1063,14 +1199,17 @@ def cb_bw_settings(c: types.CallbackQuery) -> None:
         kb_p = InlineKeyboardMarkup(row_width=1)
         kb_p.add(_back_btn(f"stbw:page:{chat_id}:terms"))
         prompt_text = (
+            f"{_DOC_LINK}\n\n"
             "<b>Добавить запрещённые слова/фразы</b>\n\n"
             "Отправьте одно или несколько слов — <b>каждое с новой строки</b>.\n"
             "Строка без пробелов → <i>слово</i>.\n"
             "Строка с пробелами → <i>фраза</i>.\n\n"
             "<b>Поддерживаются шаблоны:</b>\n"
             "<code>сло(*)во</code> — 0 или более любых символов.\n"
-            "<code>сло(+)во</code> — 1 или более символов (без пробелов).\n\n"
-            f"<b>Пример:</b>\n<code>плохоеслово\nплохая фраза\nсло(*)во</code>"
+            "<code>бля(*)</code> — слово с любым продолжением (0+).\n"
+            "<code>бля(+)</code> — слово с обязательным продолжением (1+, без пробела).\n"
+            "<code>(*)бля(*)</code> — подстрока с любым окружением.\n\n"
+            f"<b>Пример:</b>\n<code>плохоеслово\nплохая фраза\nсло(*)во\nбля(*)</code>"
         )
         sent = bot.send_message(msg_chat.id, prompt_text, parse_mode="HTML",
                                 disable_web_page_preview=True, reply_markup=kb_p)
@@ -1090,6 +1229,7 @@ def cb_bw_settings(c: types.CallbackQuery) -> None:
         kb_p = InlineKeyboardMarkup(row_width=1)
         kb_p.add(_back_btn(f"stbw:page:{chat_id}:terms"))
         prompt_text = (
+            f"{_DOC_LINK}\n\n"
             "<b>Удалить запрещённые слова/фразы</b>\n\n"
             "Отправьте слово или фразу для удаления.\n"
             "Можно несколько — каждое с новой строки."
@@ -1131,6 +1271,7 @@ def cb_bw_settings(c: types.CallbackQuery) -> None:
         kb_p = InlineKeyboardMarkup(row_width=1)
         kb_p.add(_back_btn(f"stbw:page:{chat_id}:allow"))
         prompt_text = (
+            f"{_DOC_LINK}\n\n"
             "<b>Добавить исключения (allowlist)</b>\n\n"
             "Отправьте одно или несколько слов/фраз — <b>каждое с новой строки</b>.\n"
             "Совпадение с исключением отменяет наказание.\n\n"
@@ -1154,6 +1295,7 @@ def cb_bw_settings(c: types.CallbackQuery) -> None:
         kb_p = InlineKeyboardMarkup(row_width=1)
         kb_p.add(_back_btn(f"stbw:page:{chat_id}:allow"))
         prompt_text = (
+            f"{_DOC_LINK}\n\n"
             "<b>Удалить исключения</b>\n\n"
             "Отправьте слово или фразу для удаления из allowlist.\n"
             "Можно несколько — каждое с новой строки."
@@ -1229,14 +1371,19 @@ def cmd_badd(m: types.Message) -> None:
         bot.reply_to(m, premium_prefix("Не удалось распознать слова."), parse_mode="HTML")
         return
 
-    added, skipped, errors = _bw_add_terms(chat_id, new_terms)
+    added, skipped, errors, added_texts = _bw_add_terms(chat_id, new_terms)
+    add_emoji = f'<tg-emoji emoji-id="{_EMOJI_ADD_ID}">✅</tg-emoji>'
     lines: list[str] = []
     if added:
-        lines.append(f"✅ Добавлено: <b>{added}</b>")
+        term_list = "\n".join(
+            f"{i + 1}. <code>{_html.escape(t)}</code>"
+            for i, t in enumerate(added_texts[:20])
+        )
+        lines.append(f"{add_emoji} Добавлено: <b>{added}</b>\n{term_list}")
     if skipped:
         lines.append(f"ℹ️ Уже в списке: <b>{skipped}</b>")
     for e in errors[:3]:
-        lines.append(f"⚠️ {e}")
+        lines.append(premium_prefix(e))
     bot.reply_to(m, "\n".join(lines) if lines else premium_prefix("Нет изменений."), parse_mode="HTML")
 
 
@@ -1263,12 +1410,17 @@ def cmd_bdel(m: types.Message) -> None:
         return
 
     raw_input = parts[1]
-    deleted, not_found = _bw_del_terms(chat_id, raw_input)
+    deleted, not_found, deleted_texts = _bw_del_terms(chat_id, raw_input)
+    del_emoji = f'<tg-emoji emoji-id="{_EMOJI_DEL_ID}">❌</tg-emoji>'
     lines: list[str] = []
     if deleted:
-        lines.append(f"✅ Удалено: <b>{deleted}</b>")
+        term_list = "\n".join(
+            f"{i + 1}. <code>{_html.escape(t)}</code>"
+            for i, t in enumerate(deleted_texts[:20])
+        )
+        lines.append(f"{del_emoji} Удалено: <b>{deleted}</b>\n{term_list}")
     for nf in not_found[:5]:
-        lines.append(f"❌ Не найдено: <code>{_html.escape(nf)}</code>")
+        lines.append(premium_prefix(f"Не найдено: <code>{_html.escape(nf)}</code>"))
     bot.reply_to(m, "\n".join(lines) if lines else premium_prefix("Нет изменений."), parse_mode="HTML")
 
 
@@ -1438,20 +1590,25 @@ def handle_banwords_private_pending(m: types.Message) -> bool:
             return True
 
         new_terms = _parse_term_lines(raw)
-        added, skipped, errors = _bw_add_terms(add_cid, new_terms)
+        added, skipped, errors, added_texts = _bw_add_terms(add_cid, new_terms)
 
         _bw_pending_pop("pending_bw_add_term", user_id)
         prompt_id = _pending_msg_pop("pending_bw_add_term_msg", user_id)
         _try_delete_private_prompt(m.chat.id, prompt_id)
-        _try_delete_private_prompt(m.chat.id, m.message_id)
+        # Не удаляем сообщение пользователя с добавленными словами
 
+        add_emoji = f'<tg-emoji emoji-id="{_EMOJI_ADD_ID}">✅</tg-emoji>'
         lines: list[str] = []
         if added:
-            lines.append(f"✅ Добавлено: <b>{added}</b>")
+            term_list = "\n".join(
+                f"{i + 1}. <code>{_html.escape(t)}</code>"
+                for i, t in enumerate(added_texts[:20])
+            )
+            lines.append(f"{add_emoji} Добавлено: <b>{added}</b>\n{term_list}")
         if skipped:
             lines.append(f"ℹ️ Уже в списке: <b>{skipped}</b>")
         for e in errors[:3]:
-            lines.append(f"⚠️ {e}")
+            lines.append(premium_prefix(e))
         ok_text = "\n".join(lines) if lines else premium_prefix("Нет изменений.")
         kb_ok = InlineKeyboardMarkup()
         kb_ok.add(_back_btn(f"stbw:page:{add_cid}:terms"))
@@ -1489,17 +1646,22 @@ def handle_banwords_private_pending(m: types.Message) -> bool:
             )
             return True
 
-        deleted, not_found = _bw_del_terms(del_cid, raw)
+        deleted, not_found, deleted_texts = _bw_del_terms(del_cid, raw)
         _bw_pending_pop("pending_bw_del_term", user_id)
         prompt_id = _pending_msg_pop("pending_bw_del_term_msg", user_id)
         _try_delete_private_prompt(m.chat.id, prompt_id)
-        _try_delete_private_prompt(m.chat.id, m.message_id)
+        # Не удаляем сообщение пользователя с указанными словами
 
+        del_emoji = f'<tg-emoji emoji-id="{_EMOJI_DEL_ID}">❌</tg-emoji>'
         lines_r: list[str] = []
         if deleted:
-            lines_r.append(f"✅ Удалено: <b>{deleted}</b>")
+            term_list = "\n".join(
+                f"{i + 1}. <code>{_html.escape(t)}</code>"
+                for i, t in enumerate(deleted_texts[:20])
+            )
+            lines_r.append(f"{del_emoji} Удалено: <b>{deleted}</b>\n{term_list}")
         for nf in not_found[:5]:
-            lines_r.append(f"❌ Не найдено: <code>{_html.escape(nf)}</code>")
+            lines_r.append(premium_prefix(f"Не найдено: <code>{_html.escape(nf)}</code>"))
         ok_text = "\n".join(lines_r) if lines_r else premium_prefix("Нет изменений.")
         kb_ok = InlineKeyboardMarkup()
         kb_ok.add(_back_btn(f"stbw:page:{del_cid}:terms"))
@@ -1538,20 +1700,25 @@ def handle_banwords_private_pending(m: types.Message) -> bool:
             return True
 
         new_terms = _parse_term_lines(raw)
-        added, skipped, errors = _bw_add_allow_terms(add_allow_cid, new_terms)
+        added, skipped, errors, added_texts = _bw_add_allow_terms(add_allow_cid, new_terms)
 
         _bw_pending_pop("pending_bw_add_allow", user_id)
         prompt_id = _pending_msg_pop("pending_bw_add_allow_msg", user_id)
         _try_delete_private_prompt(m.chat.id, prompt_id)
-        _try_delete_private_prompt(m.chat.id, m.message_id)
+        # Не удаляем сообщение пользователя с добавленными исключениями
 
+        add_emoji = f'<tg-emoji emoji-id="{_EMOJI_ADD_ID}">✅</tg-emoji>'
         lines_a: list[str] = []
         if added:
-            lines_a.append(f"✅ Добавлено: <b>{added}</b>")
+            term_list = "\n".join(
+                f"{i + 1}. <code>{_html.escape(t)}</code>"
+                for i, t in enumerate(added_texts[:20])
+            )
+            lines_a.append(f"{add_emoji} Добавлено: <b>{added}</b>\n{term_list}")
         if skipped:
             lines_a.append(f"ℹ️ Уже в списке: <b>{skipped}</b>")
         for e in errors[:3]:
-            lines_a.append(f"⚠️ {e}")
+            lines_a.append(premium_prefix(e))
         ok_text = "\n".join(lines_a) if lines_a else premium_prefix("Нет изменений.")
         kb_ok = InlineKeyboardMarkup()
         kb_ok.add(_back_btn(f"stbw:page:{add_allow_cid}:allow"))
@@ -1589,17 +1756,22 @@ def handle_banwords_private_pending(m: types.Message) -> bool:
             )
             return True
 
-        deleted, not_found = _bw_del_allow_terms(del_allow_cid, raw)
+        deleted, not_found, deleted_texts = _bw_del_allow_terms(del_allow_cid, raw)
         _bw_pending_pop("pending_bw_del_allow", user_id)
         prompt_id = _pending_msg_pop("pending_bw_del_allow_msg", user_id)
         _try_delete_private_prompt(m.chat.id, prompt_id)
-        _try_delete_private_prompt(m.chat.id, m.message_id)
+        # Не удаляем сообщение пользователя с указанными исключениями
 
+        del_emoji = f'<tg-emoji emoji-id="{_EMOJI_DEL_ID}">❌</tg-emoji>'
         lines_da: list[str] = []
         if deleted:
-            lines_da.append(f"✅ Удалено: <b>{deleted}</b>")
+            term_list = "\n".join(
+                f"{i + 1}. <code>{_html.escape(t)}</code>"
+                for i, t in enumerate(deleted_texts[:20])
+            )
+            lines_da.append(f"{del_emoji} Удалено: <b>{deleted}</b>\n{term_list}")
         for nf in not_found[:5]:
-            lines_da.append(f"❌ Не найдено: <code>{_html.escape(nf)}</code>")
+            lines_da.append(premium_prefix(f"Не найдено: <code>{_html.escape(nf)}</code>"))
         ok_text = "\n".join(lines_da) if lines_da else premium_prefix("Нет изменений.")
         kb_ok = InlineKeyboardMarkup()
         kb_ok.add(_back_btn(f"stbw:page:{del_allow_cid}:allow"))
