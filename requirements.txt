@@ -3,3 +3,4 @@ psutil
 telethon
 tgentity
 requests
+python-dotenv
