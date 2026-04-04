@@ -2175,7 +2175,7 @@ def _build_filters_keyboard(chat_id: int) -> InlineKeyboardMarkup:
         pass
     kb.add(btn_antispam)
 
-    btn_antiflood = InlineKeyboardButton("Анти-флуд", callback_data=f"stf:open:{chat_id}")
+    btn_antiflood = InlineKeyboardButton("Антифлуд", callback_data=f"stf:open:{chat_id}")
     try:
         btn_antiflood.icon_custom_emoji_id = "5451732530048802485"
     except Exception:
