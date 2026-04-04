@@ -308,12 +308,14 @@ class TestWildcardRules:
         assert ok, f"Expected valid, got: {msg}"
 
     def test_validate_invalid_no_left(self):
+        # Маркер в начале строки теперь ДОПУСТИМ (маркер-префикс)
         ok, msg = validate_wildcard_rule("(*)слово")
-        assert not ok, "Expected invalid (no text left of marker)"
+        assert ok, f"Expected valid (marker at start is now allowed), got: {msg}"
 
     def test_validate_invalid_no_right(self):
+        # Маркер в конце строки теперь ДОПУСТИМ (маркер-суффикс)
         ok, msg = validate_wildcard_rule("слово(*)")
-        assert not ok, "Expected invalid (no text right of marker)"
+        assert ok, f"Expected valid (marker at end is now allowed), got: {msg}"
 
     def test_validate_invalid_only_marker(self):
         ok, msg = validate_wildcard_rule("(*)")
@@ -350,6 +352,134 @@ class TestWildcardRules:
     def test_wildcard_with_confusables(self):
         # Латинские символы в шаблоне нормализуются
         assert _wildcard_matches("слоXво", "сло(+)во", "CONFUSABLES")
+
+
+# ─────────────────────────────────────────────
+# Тесты wildcard-маркеров в начале/конце строки
+# ─────────────────────────────────────────────
+
+class TestWildcardEdgeMarkers:
+    """
+    Проверяем новое поведение: маркеры (*) и (+) разрешены в начале и конце правила.
+    """
+
+    # ── validate: маркер в конце / начале теперь допустим ──
+
+    def test_validate_suffix_star_valid(self):
+        ok, msg = validate_wildcard_rule("бля(*)")
+        assert ok, f"Expected valid, got: {msg}"
+
+    def test_validate_suffix_plus_valid(self):
+        ok, msg = validate_wildcard_rule("бля(+)")
+        assert ok, f"Expected valid, got: {msg}"
+
+    def test_validate_prefix_plus_valid(self):
+        ok, msg = validate_wildcard_rule("(+)бля")
+        assert ok, f"Expected valid, got: {msg}"
+
+    def test_validate_prefix_star_valid(self):
+        ok, msg = validate_wildcard_rule("(*)бля")
+        assert ok, f"Expected valid, got: {msg}"
+
+    def test_validate_both_sides_star_valid(self):
+        ok, msg = validate_wildcard_rule("(*)бля(*)")
+        assert ok, f"Expected valid, got: {msg}"
+
+    def test_validate_only_marker_invalid(self):
+        ok, msg = validate_wildcard_rule("(*)")
+        assert not ok, "Only marker with no text should be invalid"
+
+    def test_validate_two_markers_no_text_invalid(self):
+        ok, msg = validate_wildcard_rule("(*)(+)")
+        assert not ok, "Two markers with no text should be invalid"
+
+    # ── бля(*) матчит различные суффиксы ──
+
+    def test_suffix_star_matches_suffix(self):
+        assert _wildcard_matches("бляха", "бля(*)", "EXACT")
+
+    def test_suffix_star_matches_digits(self):
+        assert _wildcard_matches("бля1", "бля(*)", "EXACT")
+
+    def test_suffix_star_matches_long_suffix(self):
+        assert _wildcard_matches("бля00000", "бля(*)", "EXACT")
+
+    def test_suffix_star_matches_empty_suffix(self):
+        # (*) может быть пустым — «бля» само по себе тоже матчится
+        assert _wildcard_matches("бля", "бля(*)", "EXACT")
+
+    def test_suffix_star_matches_in_context(self):
+        # Матч в середине текста тоже должен работать (search)
+        assert _wildcard_matches("это бляха тут", "бля(*)", "EXACT")
+
+    # ── бля(+) требует хотя бы 1 символ, не пробел ──
+
+    def test_suffix_plus_matches_nonempty(self):
+        assert _wildcard_matches("бляха", "бля(+)", "EXACT")
+
+    def test_suffix_plus_matches_digit(self):
+        assert _wildcard_matches("бля1", "бля(+)", "EXACT")
+
+    def test_suffix_plus_no_match_bare_word(self):
+        # «бля» без продолжения — НЕ матчится с бля(+)
+        assert not _wildcard_matches("бля", "бля(+)", "EXACT")
+
+    def test_suffix_plus_no_match_with_space(self):
+        # «бля слово» — (+) не пересекает пробел
+        assert not _wildcard_matches("бля слово", "бля(+)", "EXACT")
+
+    # ── (+)бля требует хотя бы 1 символ перед «бля» ──
+
+    def test_prefix_plus_matches_prefix(self):
+        assert _wildcard_matches("абля", "(+)бля", "EXACT")
+
+    def test_prefix_plus_matches_digit_prefix(self):
+        assert _wildcard_matches("1бля", "(+)бля", "EXACT")
+
+    def test_prefix_plus_no_match_space_before(self):
+        # Пробел перед «бля» — (+) не матчит пробел
+        # В тексте " бля" на позиции 0 пробел не матчит \S+
+        # Но «бля» без символов слева тоже не матчит
+        result = _wildcard_matches("бля", "(+)бля", "EXACT")
+        assert not result, "(+)бля should NOT match standalone 'бля'"
+
+    # ── (*)бля(*) матчит как подстрока ──
+
+    def test_both_star_matches_middle(self):
+        assert _wildcard_matches("это бляха тут", "(*)бля(*)", "EXACT")
+
+    def test_both_star_matches_prefix_only(self):
+        assert _wildcard_matches("нубля123", "(*)бля(*)", "EXACT")
+
+    def test_both_star_matches_exact(self):
+        assert _wildcard_matches("бля", "(*)бля(*)", "EXACT")
+
+    # ── Allowlist перебивает запрет с wildcard ──
+
+    def test_allowlist_overrides_suffix_star(self):
+        """бля(*) запрещено, но бляха в allowlist → не наказывать."""
+        text = "бляха"
+        banned_rule = "бля(*)"
+        allow_rule = "бляха"
+        # allowlist совпадает по точному термину
+        allow_match = _term_matches(text, allow_rule, "word", "EXACT")
+        if allow_match:
+            result = "no_violation"
+        else:
+            result = "violation" if _wildcard_matches(text, banned_rule, "EXACT") else "no_violation"
+        assert result == "no_violation"
+
+    def test_allowlist_prefix_overrides(self):
+        """(*)бля(*) запрещено, нубля(*) в allowlist — не наказывать нубля...."""
+        text = "нубляха"
+        banned_rule = "(*)бля(*)"
+        allow_rule = "нубля(*)"
+        allow_match = _wildcard_matches(text, allow_rule, "EXACT")
+        if allow_match:
+            result = "no_violation"
+        else:
+            result = "violation" if _wildcard_matches(text, banned_rule, "EXACT") else "no_violation"
+        assert result == "no_violation"
 
 
 # ─────────────────────────────────────────────
