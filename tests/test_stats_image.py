@@ -8,8 +8,6 @@ import os
 import sys
 import importlib.util
 import unittest.mock as _mock
-import types as _types
-import tempfile
 import pytest
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

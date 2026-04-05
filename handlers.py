@@ -774,9 +774,7 @@ def _render_stats_image(
 
         # ── Horizontal bar ────────────────────────────────────────────────────
         bar_w = int(count / max_scale * BAR_MAX_W)
-        if count > 0:
-            bar_w = max(bar_w, 6)
-        bar_w = min(bar_w, BAR_MAX_W)
+        bar_w = min(max(bar_w, 6) if count > 0 else 0, BAR_MAX_W)
 
         bar_x0 = sc(CHART_L)
         bar_y0 = sc(y + 8)
