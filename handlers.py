@@ -610,10 +610,10 @@ def _render_stats_image(
     users_map: dict[int, str],
     max_users: int = 30,
 ) -> bytes:
-    """Render a fixed 640×1024 horizontal bar-chart PNG (per-user).
+    """Render a fixed 1024×640 horizontal bar-chart PNG (per-user).
 
     Draws at 2× then downscales with LANCZOS.
-    Layout: pill labels on the left, horizontal bars to the right, count values at end.
+    Layout: rank+name panel on the left, horizontal bars, count on the right.
     """
     from PIL import Image, ImageDraw
 
@@ -621,82 +621,79 @@ def _render_stats_image(
     if not top_n:
         raise ValueError("No rows to render")
 
-    # ── Palette ───────────────────────────────────────────────────────────────
-    C_BG       = (0x30, 0x3f, 0x54, 255)
-    C_STRIPE_A = (0x34, 0x46, 0x5c)
-    C_STRIPE_B = (0x38, 0x4b, 0x63)
-    C_BAR      = (0xa9, 0xde, 0xe6)
-    C_BAR_EDGE = (0xd8, 0xf4, 0xf7)
-    C_GRID     = (0x50, 0x64, 0x7b, 255)
-    C_MUTED    = (0xb8, 0xc9, 0xd6, 255)
-    C_VALUE    = (0xdf, 0xf8, 0xfb, 255)
-    C_TITLE    = (0xe5, 0xed, 0xf5, 255)
-    C_PILL_FG  = (0x1f, 0x29, 0x33, 255)
+    # ── Palette ──────────────────────────────────────────────────────────────
+    C_BG      = (0x16, 0x1d, 0x2e)
+    C_CARD    = (0x1e, 0x26, 0x38)
+    C_ROW_A   = (0x21, 0x2a, 0x3f)
+    C_ROW_B   = (0x1c, 0x24, 0x36)
+    C_SEP     = (0x2c, 0x39, 0x52)
+    C_GRID    = (0x2c, 0x38, 0x52, 90)
+    C_BAR     = (0x34, 0xa8, 0xd0)
+    C_BAR_HI  = (0x5c, 0xc8, 0xe8)
+    C_TITLE   = (0xec, 0xf2, 0xfc)
+    C_SUB     = (0x7a, 0x90, 0xb2)
+    C_NAME    = (0xcc, 0xe2, 0xf5)
+    C_RANK_BG = (0x26, 0x7c, 0xa8, 100)
+    C_RANK    = (0xb8, 0xda, 0xf4)
+    C_VALUE   = (0xe8, 0xf5, 0xff)
+    C_SCALE   = (0x5a, 0x72, 0x90)
 
-    # ── Fixed output size & supersampling ─────────────────────────────────────
-    W_OUT, H_OUT = 640, 1024
+    # ── Canvas ────────────────────────────────────────────────────────────────
+    W_OUT, H_OUT = 1024, 640
     S = 2
-
-    # ── Layout (final-pixel coordinates) ─────────────────────────────────────
-    N = len(top_n)
-    margin_l = 178  # pill label area
-    margin_r = 58   # count text on right
-    margin_t = 100  # header
-    margin_b = 52   # scale labels at bottom
-
-    plot_x0 = margin_l
-    plot_y0 = margin_t
-    plot_x1 = W_OUT - margin_r
-    plot_y1 = H_OUT - margin_b
-    plot_w  = plot_x1 - plot_x0
-    plot_h  = plot_y1 - plot_y0
-
-    # Adaptive row gap and bar height
-    if N <= 8:
-        row_gap = 10
-    elif N <= 15:
-        row_gap = 7
-    elif N <= 20:
-        row_gap = 5
-    else:
-        row_gap = 3
-
-    bar_h = max(18, int((plot_h - row_gap * (N - 1)) / N))
-
-    # Pill dimensions (left label)
-    pill_w = 164
-    pill_x = 6
-    pill_h = max(14, bar_h - 4)
-
-    # ── Draw at 2× ───────────────────────────────────────────────────────────
     W, H = W_OUT * S, H_OUT * S
 
     def sc(v: float) -> int:
         return int(v * S)
 
-    img  = Image.new('RGBA', (W, H), C_BG)
+    # ── Layout (output-px) ────────────────────────────────────────────────────
+    N       = len(top_n)
+    HDR_H   = 72
+    FTR_H   = 34
+    LEFT_W  = 220
+    RIGHT_W = 72
+    PAD_X   = 8
+
+    plot_x0 = PAD_X + LEFT_W
+    plot_y0 = HDR_H
+    plot_x1 = W_OUT - PAD_X - RIGHT_W
+    plot_y1 = H_OUT - FTR_H
+    plot_w  = plot_x1 - plot_x0
+    plot_h  = plot_y1 - plot_y0
+
+    row_gap = max(2, min(6, plot_h // max(1, N * 6)))
+    bar_h   = max(12, int((plot_h - row_gap * max(0, N - 1)) / N))
+    while N > 1 and (plot_y0 + N * bar_h + (N - 1) * row_gap) > plot_y1 and bar_h > 10:
+        bar_h -= 1
+
+    img  = Image.new('RGBA', (W, H), C_BG + (255,))
     draw = ImageDraw.Draw(img, 'RGBA')
 
-    label_font_pt = max(8, min(12, bar_h - 7))
-    fnt_title = _load_font(_FONT_BOLD_PATHS, sc(18))
-    fnt_sub   = _load_font(_FONT_REG_PATHS,  sc(11))
-    fnt_label = _load_font(_FONT_REG_PATHS,  sc(label_font_pt))
-    fnt_value = _load_font(_FONT_BOLD_PATHS, sc(label_font_pt))
-    fnt_scale = _load_font(_FONT_REG_PATHS,  sc(9))
+    # ── Fonts ─────────────────────────────────────────────────────────────────
+    name_pt   = max(8, min(12, bar_h - 4))
+    fnt_title = _load_font(_FONT_BOLD_PATHS, sc(17))
+    fnt_sub   = _load_font(_FONT_REG_PATHS,  sc(10))
+    fnt_name  = _load_font(_FONT_REG_PATHS,  sc(name_pt))
+    fnt_rank  = _load_font(_FONT_BOLD_PATHS, sc(max(7, name_pt - 1)))
+    fnt_value = _load_font(_FONT_BOLD_PATHS, sc(name_pt))
+    fnt_scale = _load_font(_FONT_REG_PATHS,  sc(8))
 
-    # Title + subtitle (centered horizontally)
+    # ── Header ────────────────────────────────────────────────────────────────
+    draw.rectangle([0, 0, W, sc(HDR_H)], fill=C_CARD + (255,))
+    draw.rectangle([0, sc(HDR_H) - S, W, sc(HDR_H)], fill=C_SEP + (255,))
+
     for txt, yy, font, fill in [
-        (f"Статистика за {period_label}", 14, fnt_title, C_TITLE),
-        (f'для чата "{chat_title[:38]}"', 40, fnt_sub,   C_MUTED),
+        (f"📊  Статистика за {period_label}", 10, fnt_title, C_TITLE),
+        (f'Чат: "{chat_title[:52]}"', 38, fnt_sub, C_SUB),
     ]:
         bbox = draw.textbbox((0, 0), txt, font=font)
         tw   = bbox[2] - bbox[0]
-        draw.text((sc(W_OUT / 2) - tw // 2, sc(yy)), txt, fill=fill, font=font)
+        tx   = max(sc(PAD_X), sc(W_OUT // 2) - tw // 2)
+        draw.text((tx, sc(yy)), txt, fill=fill + (255,), font=font)
 
-    # Scale (vertical grid lines)
+    # ── Vertical grid lines (strictly inside plot area) ───────────────────────
     max_val   = top_n[0][1] if top_n else 1
     max_scale = max(max_val, 1)
-    # Pick a nice step so we get ~4-6 gridlines
     for step in (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000,
                  10000, 20000, 50000, 100000):
         if max_scale / step <= 6:
@@ -705,87 +702,109 @@ def _render_stats_image(
     else:
         scale_step = max(1, max_scale // 5)
 
-    steps = list(range(0, max_scale + 1, scale_step))
-    if max_scale not in steps:
-        steps.append(max_scale)
+    scale_vals = list(range(scale_step, max_scale + 1, scale_step))
+    if max_scale not in scale_vals:
+        scale_vals.append(max_scale)
 
-    for s_val in steps:
-        x_f = plot_x0 + (s_val / max_scale) * plot_w
-        draw.line(
-            [(sc(x_f), sc(plot_y0 - 6)), (sc(x_f), sc(plot_y1))],
-            fill=C_GRID, width=max(1, S),
+    for sv in scale_vals:
+        xf = plot_x0 + (sv / max_scale) * plot_w
+        if xf > plot_x1:
+            continue
+        draw.rectangle(
+            [sc(xf), sc(plot_y0), sc(xf) + S, sc(plot_y1)],
+            fill=C_GRID,
         )
-        lbl = str(s_val)
-        bbox = draw.textbbox((0, 0), lbl, font=fnt_scale)
-        tw   = bbox[2] - bbox[0]
-        draw.text((sc(x_f) - tw // 2, sc(plot_y1 + 4)), lbl, fill=C_MUTED, font=fnt_scale)
+        lbl = str(sv)
+        lb  = draw.textbbox((0, 0), lbl, font=fnt_scale)
+        lw  = lb[2] - lb[0]
+        lx  = max(sc(plot_x0), min(sc(plot_x1) - lw, sc(xf) - lw // 2))
+        draw.text((lx, sc(plot_y1 + 5)), lbl, fill=C_SCALE + (255,), font=fnt_scale)
 
-    # Alternating row backgrounds
-    for i in range(N):
-        y = plot_y0 + i * (bar_h + row_gap)
-        fill = C_STRIPE_A if i % 2 == 0 else C_STRIPE_B
-        draw.rounded_rectangle(
-            (sc(plot_x0), sc(y), sc(plot_x1), sc(y + bar_h)),
-            radius=sc(6), fill=fill + (255,),
-        )
-
-    # Bars + pills + counts
+    # ── Rows ──────────────────────────────────────────────────────────────────
     for i, (user_id, count) in enumerate(top_n):
-        y   = plot_y0 + i * (bar_h + row_gap)
-        y_m = y + bar_h / 2
+        yt = plot_y0 + i * (bar_h + row_gap)
+        yb = yt + bar_h
+        if yb > plot_y1:
+            break
+        ym = (yt + yb) * 0.5
 
-        # ── Pill (semi-transparent label on left) ─────────────────────────
-        pill_y       = y_m - pill_h / 2
-        pill_fill    = C_BAR + (70,)
-        pill_outline = C_BAR + (150,)
+        # Row background (full width, clipped to image)
+        rc = C_ROW_A if i % 2 == 0 else C_ROW_B
         draw.rounded_rectangle(
-            (sc(pill_x), sc(pill_y), sc(pill_x + pill_w), sc(pill_y + pill_h)),
-            radius=sc(min(pill_h // 2, 14)),
-            fill=pill_fill, outline=pill_outline, width=max(1, S),
+            (sc(PAD_X), sc(yt), sc(W_OUT - PAD_X), sc(yb)),
+            radius=sc(5), fill=rc + (255,),
         )
 
-        # Pill text: truncate name to fit, always show [ID]
-        name    = users_map.get(user_id, f"ID {user_id}")
-        id_tag  = f"[{user_id}]"
-        max_pill_tw = sc(pill_w - 8)
+        # ── Rank badge ────────────────────────────────────────────────────
+        bh_half  = bar_h * 0.38
+        badge_x0 = PAD_X + 6
+        badge_x1 = badge_x0 + 30
+        badge_y0 = ym - bh_half
+        badge_y1 = ym + bh_half
+        draw.rounded_rectangle(
+            (sc(badge_x0), sc(badge_y0), sc(badge_x1), sc(badge_y1)),
+            radius=sc(4), fill=C_RANK_BG,
+        )
+        rk  = str(i + 1)
+        rb  = draw.textbbox((0, 0), rk, font=fnt_rank)
+        rtw = rb[2] - rb[0]
+        rth = rb[3] - rb[1]
+        bdh = sc(badge_y1 - badge_y0)
+        draw.text(
+            (sc(badge_x0) + (sc(30) - rtw) // 2,
+             sc(badge_y0) + (bdh - rth) // 2),
+            rk, fill=C_RANK + (255,), font=fnt_rank,
+        )
 
-        # Try "Name [ID]", shrink name until it fits or only show [ID]
-        trunc = name[:_STATS_NAME_MAXLEN]
-        while True:
-            label = f"{trunc} {id_tag}" if trunc else id_tag
-            bbox  = draw.textbbox((0, 0), label, font=fnt_label)
-            if (bbox[2] - bbox[0]) <= max_pill_tw or len(trunc) <= 0:
+        # ── Name ──────────────────────────────────────────────────────────
+        name      = users_map.get(user_id, f"ID {user_id}")
+        name_x    = badge_x1 + 7
+        max_name_w = sc(LEFT_W - (name_x - PAD_X) - 4)
+        candidate  = name[:_STATS_NAME_MAXLEN]
+        trunc      = candidate[:3]
+        while candidate:
+            nb = draw.textbbox((0, 0), candidate, font=fnt_name)
+            if (nb[2] - nb[0]) <= max_name_w:
+                trunc = candidate
                 break
-            trunc = trunc[:-1] + "…"
-
-        bbox = draw.textbbox((0, 0), label, font=fnt_label)
-        tw_l = bbox[2] - bbox[0]
-        th_l = bbox[3] - bbox[1]
+            candidate = candidate[:-1].rstrip()
+        nb   = draw.textbbox((0, 0), trunc, font=fnt_name)
+        nth  = nb[3] - nb[1]
         draw.text(
-            (sc(pill_x) + (sc(pill_w) - tw_l) // 2,
-             sc(pill_y) + (sc(pill_h) - th_l) // 2 - S),
-            label, fill=C_PILL_FG, font=fnt_label,
+            (sc(name_x), sc(ym) - nth // 2),
+            trunc, fill=C_NAME + (255,), font=fnt_name,
         )
 
-        # ── Horizontal bar ─────────────────────────────────────────────────
-        bar_w = max(sc(2), int(sc(plot_w) * count / max_scale))
+        # ── Horizontal bar ────────────────────────────────────────────────
+        bar_px = max(S * 3, min(int(sc(plot_w) * count / max_scale), sc(plot_w)))
+        bar_x0 = sc(plot_x0)
+        bar_x1 = bar_x0 + bar_px
+        bar_y0 = sc(yt + 2)
+        bar_y1 = sc(yb - 2)
+        r_bar  = min(sc(5), (bar_y1 - bar_y0) // 2)
         draw.rounded_rectangle(
-            (sc(plot_x0), sc(y), sc(plot_x0) + bar_w, sc(y + bar_h)),
-            radius=sc(6),
-            fill=C_BAR + (255,), outline=C_BAR_EDGE + (255,), width=max(1, S),
+            (bar_x0, bar_y0, bar_x1, bar_y1),
+            radius=r_bar, fill=C_BAR + (255,),
         )
+        # Subtle top-edge highlight for depth
+        if bar_y1 - bar_y0 >= S * 5:
+            draw.rounded_rectangle(
+                (bar_x0, bar_y0, bar_x1, bar_y0 + S * 2),
+                radius=r_bar, fill=C_BAR_HI + (160,),
+            )
 
-        # ── Count value (right of bar, clamped within plot) ────────────────
-        val_txt = str(count)
-        bbox_v  = draw.textbbox((0, 0), val_txt, font=fnt_value)
-        th_v    = bbox_v[3] - bbox_v[1]
-        val_x   = min(sc(plot_x0) + bar_w + sc(5), sc(plot_x1) - (bbox_v[2] - bbox_v[0]) - S)
-        draw.text(
-            (val_x, sc(y_m) - th_v // 2 - S),
-            val_txt, fill=C_VALUE, font=fnt_value,
-        )
+        # ── Count value (right panel, clamped within image) ────────────────
+        vt  = str(count)
+        vb  = draw.textbbox((0, 0), vt, font=fnt_value)
+        vw  = vb[2] - vb[0]
+        vh  = vb[3] - vb[1]
+        vx  = min(sc(plot_x1 + 6), W - vw - S * 4)
+        draw.text((vx, sc(ym) - vh // 2), vt, fill=C_VALUE + (255,), font=fnt_value)
 
-    # Downscale to final size
+    # ── Footer divider ────────────────────────────────────────────────────────
+    draw.rectangle([0, sc(plot_y1), W, sc(plot_y1) + S], fill=C_SEP + (255,))
+
+    # ── Downscale ─────────────────────────────────────────────────────────────
     img_out = img.convert('RGB').resize((W_OUT, H_OUT), Image.LANCZOS)
     buf = _io.BytesIO()
     img_out.save(buf, format="PNG", optimize=True)
@@ -797,7 +816,7 @@ def _render_daily_chart(
     chat_title: str,
     period_label: str,
 ) -> bytes:
-    """Render a fixed 640×1024 vertical bar chart grouped by day.
+    """Render a fixed 1024×640 vertical bar chart grouped by day.
 
     Draws at 2× then downscales with LANCZOS.
     days_data: list of (day_ts_utc, count) ordered ASC (oldest → newest).
@@ -807,86 +826,132 @@ def _render_daily_chart(
     if not days_data:
         raise ValueError("No data")
 
-    # ── Palette (shared with user chart) ─────────────────────────────────────
-    C_BG       = (0x30, 0x3f, 0x54, 255)
-    C_GRID     = (0x50, 0x64, 0x7b, 255)
-    C_MUTED    = (0xb8, 0xc9, 0xd6, 255)
-    C_TITLE    = (0xe5, 0xed, 0xf5, 255)
-    C_BAR_DEF  = (0xa9, 0xde, 0xe6, 255)   # regular day
-    C_BAR_SUN  = (0xd8, 0xf4, 0xf7, 255)   # Sunday highlight
+    # ── Palette ──────────────────────────────────────────────────────────────
+    C_BG      = (0x16, 0x1d, 0x2e)
+    C_CARD    = (0x1e, 0x26, 0x38)
+    C_SEP     = (0x2c, 0x39, 0x52)
+    C_GRID    = (0x2c, 0x38, 0x52, 90)
+    C_BAR     = (0x34, 0xa8, 0xd0, 255)
+    C_BAR_SUN = (0x5c, 0xc8, 0xe8, 255)   # Sunday: brighter accent
+    C_BAR_HI  = (0x80, 0xdc, 0xf4, 160)   # top-edge highlight
+    C_TITLE   = (0xec, 0xf2, 0xfc)
+    C_SUB     = (0x7a, 0x90, 0xb2)
+    C_MUTED   = (0x5a, 0x72, 0x90)
+    C_LABEL   = (0x8a, 0xa2, 0xc0)
 
-    # ── Fixed output size & supersampling ─────────────────────────────────────
-    W_OUT, H_OUT = 640, 1024
+    # ── Canvas ────────────────────────────────────────────────────────────────
+    W_OUT, H_OUT = 1024, 640
     S = 2
-
-    # ── Layout (final-pixel coordinates) ─────────────────────────────────────
-    margin_t  = 100   # header
-    margin_b  = 52    # date labels
-    margin_lr = 28    # left/right
-
-    chart_x0 = margin_lr
-    chart_y0 = margin_t
-    chart_x1 = W_OUT - margin_lr
-    chart_y1 = H_OUT - margin_b
-    chart_w  = chart_x1 - chart_x0
-    chart_h  = chart_y1 - chart_y0
-
-    n = len(days_data)
-    gap  = max(1, min(4, chart_w // (n * 4)))
-    bar_w = max(2, (chart_w - gap * (n - 1)) // n)
-
-    # ── Draw at 2× ───────────────────────────────────────────────────────────
     W, H = W_OUT * S, H_OUT * S
 
     def sc(v: float) -> int:
         return int(v * S)
 
-    img  = Image.new('RGBA', (W, H), C_BG)
+    # ── Layout ────────────────────────────────────────────────────────────────
+    HDR_H    = 72
+    FTR_H    = 40
+    PAD_LR   = 36
+    SCALE_W  = 38   # left margin reserved for scale labels
+
+    chart_x0 = PAD_LR + SCALE_W
+    chart_y0 = HDR_H
+    chart_x1 = W_OUT - PAD_LR
+    chart_y1 = H_OUT - FTR_H
+    chart_w  = chart_x1 - chart_x0
+    chart_h  = chart_y1 - chart_y0
+
+    n     = len(days_data)
+    gap   = max(1, min(4, chart_w // max(1, n * 4)))
+    bar_w = max(2, (chart_w - gap * max(0, n - 1)) // n)
+
+    img  = Image.new('RGBA', (W, H), C_BG + (255,))
     draw = ImageDraw.Draw(img, 'RGBA')
 
-    fnt_title = _load_font(_FONT_BOLD_PATHS, sc(18))
-    fnt_sub   = _load_font(_FONT_REG_PATHS,  sc(11))
+    fnt_title = _load_font(_FONT_BOLD_PATHS, sc(17))
+    fnt_sub   = _load_font(_FONT_REG_PATHS,  sc(10))
     fnt_label = _load_font(_FONT_REG_PATHS,  sc(8))
+    fnt_scale = _load_font(_FONT_REG_PATHS,  sc(8))
 
-    # Title + subtitle (centered)
+    # ── Header ────────────────────────────────────────────────────────────────
+    draw.rectangle([0, 0, W, sc(HDR_H)], fill=C_CARD + (255,))
+    draw.rectangle([0, sc(HDR_H) - S, W, sc(HDR_H)], fill=C_SEP + (255,))
+
     for txt, yy, font, fill in [
-        (f"Статистика за {period_label}", 14, fnt_title, C_TITLE),
-        (f'для чата "{chat_title[:38]}"', 40, fnt_sub,   C_MUTED),
+        (f"📊  Статистика за {period_label}", 10, fnt_title, C_TITLE),
+        (f'Чат: "{chat_title[:52]}"', 38, fnt_sub, C_SUB),
     ]:
         bbox = draw.textbbox((0, 0), txt, font=font)
         tw   = bbox[2] - bbox[0]
-        draw.text((sc(W_OUT / 2) - tw // 2, sc(yy)), txt, fill=fill, font=font)
+        tx   = max(sc(PAD_LR), sc(W_OUT // 2) - tw // 2)
+        draw.text((tx, sc(yy)), txt, fill=fill + (255,), font=font)
 
-    # Horizontal grid lines at 25 %, 50 %, 75 %, 100 %
+    # ── Horizontal grid lines (inside plot only) + scale labels ───────────────
     max_count = max(c for _, c in days_data) or 1
     for frac in (0.25, 0.50, 0.75, 1.00):
         gy = chart_y1 - int(chart_h * frac)
+        if gy < chart_y0:
+            continue
         draw.rectangle(
-            [sc(chart_x0), sc(gy), sc(chart_x1), sc(gy) + max(1, S)],
+            [sc(chart_x0), sc(gy), sc(chart_x1), sc(gy) + max(1, S - 1)],
             fill=C_GRID,
         )
+        lv  = int(max_count * frac)
+        lbl = str(lv)
+        lb  = draw.textbbox((0, 0), lbl, font=fnt_scale)
+        lw  = lb[2] - lb[0]
+        lh  = lb[3] - lb[1]
+        lx  = max(0, sc(chart_x0) - lw - sc(4))
+        draw.text((lx, sc(gy) - lh // 2), lbl, fill=C_MUTED + (255,), font=fnt_scale)
 
-    # Label density: avoid crowding when many bars
-    label_step = 1 if n <= 10 else 3 if n <= 21 else 7 if n <= 50 else 10
+    # ── Bars ──────────────────────────────────────────────────────────────────
+    label_step = 1 if n <= 14 else 2 if n <= 28 else 7 if n <= 60 else 14
 
     for i, (day_ts, count) in enumerate(days_data):
-        x     = chart_x0 + i * (bar_w + gap)
-        bh    = max(1, int(chart_h * count / max_count))
-        # Sundays (epoch day % 7 == 3) get a lighter shade
+        bx0 = chart_x0 + i * (bar_w + gap)
+        bx1 = bx0 + bar_w
+        bh  = max(1, int(chart_h * count / max_count))
+        by0 = chart_y1 - bh
+        by1 = chart_y1
+
+        # Clamp strictly within chart area
+        bx0 = max(chart_x0, bx0)
+        bx1 = min(chart_x1, bx1)
+        by0 = max(chart_y0, by0)
+
         dow   = (day_ts // 86400) % 7
-        color = C_BAR_SUN if dow == 3 else C_BAR_DEF
-        draw.rectangle(
-            [sc(x), sc(chart_y1 - bh), sc(x + bar_w), sc(chart_y1)],
-            fill=color,
-        )
+        color = C_BAR_SUN if dow == 0 else C_BAR
+
+        # Solid bar body
+        draw.rectangle([sc(bx0), sc(by0), sc(bx1), sc(by1)], fill=color)
+        # Rounded top cap
+        r = min(sc(4), sc(bar_w) // 2)
+        if bh >= 8 and r > 0:
+            draw.rounded_rectangle(
+                [sc(bx0), sc(by0), sc(bx1), sc(by0) + r * 2],
+                radius=r, fill=color,
+            )
+            # Top highlight strip
+            draw.rounded_rectangle(
+                [sc(bx0), sc(by0), sc(bx1), sc(by0) + max(S, r)],
+                radius=r, fill=C_BAR_HI,
+            )
+
+        # Date label at bottom (within footer zone, clamped)
         if i % label_step == 0:
             try:
                 day_str = datetime.utcfromtimestamp(day_ts).strftime("%d.%m")
             except Exception:
                 day_str = ""
-            draw.text((sc(x), sc(chart_y1 + 4)), day_str, fill=C_MUTED, font=fnt_label)
+            lb = draw.textbbox((0, 0), day_str, font=fnt_label)
+            lw = lb[2] - lb[0]
+            lx = sc(bx0) + (sc(bar_w) - lw) // 2
+            lx = max(sc(chart_x0), min(lx, sc(chart_x1) - lw))
+            draw.text((lx, sc(chart_y1 + 5)), day_str, fill=C_LABEL + (255,), font=fnt_label)
 
-    # Downscale to final size
+    # ── Footer divider ────────────────────────────────────────────────────────
+    draw.rectangle([0, sc(chart_y1), W, sc(chart_y1) + S], fill=C_SEP + (255,))
+
+    # ── Downscale ─────────────────────────────────────────────────────────────
     img_out = img.convert('RGB').resize((W_OUT, H_OUT), Image.LANCZOS)
     buf = _io.BytesIO()
     img_out.save(buf, format="PNG", optimize=True)
